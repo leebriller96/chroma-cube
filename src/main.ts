@@ -27,7 +27,10 @@ const hud = new Hud({
   turn: (d) => turn(d),
   restart: () => load(index),
   next: () => advance(),
-  jump: (i) => load(i),
+  jump: (i) => {
+    sfx.unlock();
+    load(i);
+  },
 });
 
 /** 판을 앞뒤로 넘긴다. 끝에서는 반대쪽 끝으로 돈다. */
@@ -92,6 +95,9 @@ function advance(): void {
 
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  // 어떤 키를 눌렀든 사용자 제스처다. 여기서 소리를 깨워 둔다 —
+  // 판만 넘겨서 큰 판에 닿았을 때도 바람 소리가 나야 하니까.
+  sfx.unlock();
   // 판 넘기기는 클리어 여부와 상관없이 언제나 듣는다
   if (e.key === '[') return skip(-1);
   if (e.key === ']') return skip(1);
