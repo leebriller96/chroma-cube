@@ -1,0 +1,54 @@
+# main 에 푸시할 때마다 테스트를 돌리고, 통과하면 GitHub Pages 에 올린다.
+# 테스트가 깨지면 배포가 아예 안 되므로, 깨진 판이 올라갈 일은 없다.
+name: 배포
+
+on:
+  push:
+    branches: [main]
+  # 코드를 안 고치고 그냥 다시 올리고 싶을 때 손으로 돌린다
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 연달아 푸시하면 앞선 배포는 버리고 마지막 것만 올린다
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 규칙 · 깊이 접힘 · 스테이지 클리어 가능 여부까지 여기서 다 걸러진다
+      - run: npm test
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      # vite 의 base 가 './' 라 어느 하위 경로에 올려도 그대로 열린다
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
