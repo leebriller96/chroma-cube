@@ -40,6 +40,7 @@ function skip(d: -1 | 1): void {
 
 world.onImpact = () => sfx.ding();
 world.onGate = (open) => sfx.gate(open);
+world.onFlip = () => sfx.flip();
 world.onLand = () => {
   sfx.land();
   if (pendingPaint) sfx.paint();

@@ -103,6 +103,12 @@ export class Sfx {
     this.hiss({ gain: 0.09, decay: 0.3, from: 380, to: 1500 });
   }
 
+  /** 발판이 넘어가는 소리. 판때기가 한 바퀴 돌아 반대면으로 떨어진다. */
+  flip(): void {
+    this.hiss({ gain: 0.07, decay: 0.2, from: 1500, to: 400, q: 1.1 });
+    this.blip(196, { gain: 0.2, decay: 0.26, type: 'triangle', to: 262, delay: 0.12 });
+  }
+
   /** 문이 열리고 닫히는 소리. 돌쩌귀가 돌고 빗장이 풀린다. */
   gate(open: boolean): void {
     this.hiss({ gain: 0.1, decay: 0.55, from: open ? 320 : 900, to: open ? 900 : 260, q: 0.8 });

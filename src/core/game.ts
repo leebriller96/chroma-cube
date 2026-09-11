@@ -1,5 +1,5 @@
 import type { ColorId, Side, Solid, Step, Tile, Turn, Vec3, ViewIndex } from './types';
-import { eq, seenFrom, vec } from './types';
+import { eq, other, seenFrom, vec } from './types';
 import type { Stage } from './stage';
 import { depthOf, rightOf, screenX, turnView } from './view';
 
@@ -17,6 +17,11 @@ export interface GameState {
   readonly stage: Stage;
   readonly pieces: readonly Piece[];
   readonly view: ViewIndex;
+  /**
+   * 지금 뒤집혀 있는 칸들. 칸마다 비트 하나다.
+   * 밟고 떠난 칸은 뒤집혀 반대색이 되므로, 왔던 길로는 되돌아갈 수 없다.
+   */
+  readonly flipped: number;
   readonly moves: number;
   /** 교대 판에서 지금 조종하는 큐브. 그 외에는 전부 함께 움직인다. */
   readonly active: number;
@@ -35,6 +40,8 @@ export interface Movement {
   readonly toward: Vec3;
   readonly painted: ColorId | null;
   readonly entered: boolean;
+  /** 떠나면서 이 칸을 뒤집어 놓았는지. 렌더러가 발판을 돌릴 때 쓴다. */
+  readonly turned: boolean;
 }
 
 export interface Refusal {
@@ -58,6 +65,7 @@ export const startOf = (stage: Stage): GameState => ({
     done: false,
   })),
   view: stage.startView,
+  flipped: 0,
   moves: 0,
   active: 0,
   cleared: false,
@@ -67,14 +75,25 @@ export function tileAt(stage: Stage, p: Vec3): Tile | undefined {
   return stage.tiles.find((t) => eq(t.pos, p));
 }
 
+/** 지금 이 칸의 윗면 색. 뒤집힌 칸은 적힌 색의 반대다. */
+export function faceOf(tile: Tile, flipped: number): ColorId {
+  const worn = tile.color as ColorId;
+  const turned = tile.flipBit >= 0 && (flipped >> tile.flipBit) % 2 !== 0;
+  return turned ? other(worn) : worn;
+}
+
 /**
  * 지금 시점에서 밟을 수 있게 놓인 칸 전부.
  * 그림자 칸은 여기서 같은 세로줄의 실체를 찾아 색을 빌리고, 못 찾으면 아예 빠진다.
  */
-export function layout(stage: Stage, view: ViewIndex): Solid[] {
+export function layout(stage: Stage, view: ViewIndex, flipped = 0): Solid[] {
   const solids: Solid[] = [];
   // 그림자 칸이 색을 빌릴 수 있는 실체들만 먼저 넣는다. 교대 칸은 제 색이 없어 빌려 줄 게 없다.
   for (const tile of stage.tiles) {
+    if (tile.kind === 'flip') {
+      solids.push({ pos: tile.pos, color: faceOf(tile, flipped), kind: 'floor', tile });
+      continue;
+    }
     if (tile.kind !== 'floor' && tile.kind !== 'switch' && tile.kind !== 'goal') continue;
     solids.push({ pos: tile.pos, color: tile.color as ColorId, kind: tile.kind, tile });
   }
@@ -166,12 +185,14 @@ export function attempt(state: GameState, step: Step): { state: GameState; outco
 
   if (state.cleared) return { state, outcomes };
 
-  const solids = layout(stage, view);
+  const solids = layout(stage, view, state.flipped);
   const open = unsealed(stage, view);
   const together = merged(state);
   const next: Piece[] = [];
   let moved = false;
   let relayed = false;
+  // 이번 수에 뒤집히는 칸들. 둘이 같은 칸에서 함께 떠나도 한 번만 뒤집혀야 해서 따로 모은다.
+  let turning = 0;
 
   state.pieces.forEach((piece, index) => {
     // 교대 판에서는 지금 조종 중인 큐브만 움직인다. 나머지는 제자리에 선다.
@@ -200,7 +221,14 @@ export function attempt(state: GameState, step: Step): { state: GameState; outco
     if (target.kind === 'relay') relayed = true;
     moved = true;
     next.push({ pos: target.pos, color, side: piece.side, done: entered });
-    outcomes.push({ kind: 'move', index, from: at, to: target.pos, toward, painted, entered });
+
+    // 딛고 있던 칸이 뒤집히는 칸이면, 떠나는 순간 반대색으로 넘어간다
+    const left = tileAt(stage, at);
+    const bit = left && left.flipBit >= 0 ? 1 << left.flipBit : 0;
+    const turned = bit !== 0 && (turning & bit) === 0;
+    turning |= bit;
+
+    outcomes.push({ kind: 'move', index, from: at, to: target.pos, toward, painted, entered, turned });
   });
 
   if (!moved) return { state, outcomes };
@@ -213,6 +241,7 @@ export function attempt(state: GameState, step: Step): { state: GameState; outco
     state: {
       ...state,
       pieces: next,
+      flipped: state.flipped ^ turning,
       moves: state.moves + 1,
       active,
       cleared: next.every((p) => p.done),
@@ -232,7 +261,7 @@ export function solve(stage: Stage): number | null {
   const key = (s: GameState): string =>
     s.pieces
       .map((p) => [p.pos.x, p.pos.y, p.pos.z, p.color, p.side, p.done ? 1 : 0].join(','))
-      .join('|') + '@' + s.view + '/' + s.active;
+      .join('|') + '@' + s.view + '/' + s.active + '#' + s.flipped;
   const seen = new Set<string>([key(start)]);
   const queue: { state: GameState; depth: number }[] = [{ state: start, depth: 0 }];
 

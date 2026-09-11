@@ -16,13 +16,18 @@ export interface Vec3 {
  * sigil  : 밟을 수 없는 고리 조각. 전부 한 세로줄에 겹쳐 보이면 고리가 이어지고 문이 열린다
  * relay  : 밟으면 조종권이 발판 반대쪽 큐브로 넘어간다. 색과 무관하게 밟힌다
  */
-export type TileKind = 'floor' | 'switch' | 'goal' | 'ghost' | 'sigil' | 'relay';
+export type TileKind = 'floor' | 'switch' | 'goal' | 'ghost' | 'sigil' | 'relay' | 'flip';
 
 /** 지도에 적힌 칸. 색이 없는 종류(ghost, sigil, relay)는 color 가 null 이다. */
 export interface Tile {
   readonly pos: Vec3;
   readonly color: ColorId | null;
   readonly kind: TileKind;
+  /**
+   * 뒤집히는 칸이면 몇 번째인지, 아니면 -1.
+   * 어느 칸이 뒤집혀 있는지를 판 상태에 비트 하나로 들고 다니려고 번호를 매겨 둔다.
+   */
+  readonly flipBit: number;
 }
 
 /** 지금 이 시점에서 실제로 밟을 수 있게 놓여 있는 칸 */
@@ -41,9 +46,12 @@ export interface Solid {
  */
 export type Side = 'top' | 'under';
 
+/** 반대색 */
+export const other = (color: ColorId): ColorId => (color === 'blue' ? 'red' : 'blue');
+
 /** 뒤집힌 쪽에서 본 색 */
 export const seenFrom = (color: ColorId, side: Side): ColorId =>
-  side === 'top' ? color : color === 'blue' ? 'red' : 'blue';
+  side === 'top' ? color : other(color);
 
 /** 카메라가 Y축 기준 view*90° 위치에 있다. */
 export type ViewIndex = 0 | 1 | 2 | 3;

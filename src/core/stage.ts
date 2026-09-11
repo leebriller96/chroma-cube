@@ -11,6 +11,7 @@ import { seenFrom, vec } from './types';
  *   .?  그림자 칸      (제 색이 없다. 같은 세로줄에 실체가 있어야 살아나고 그 색을 빌린다)
  *   .#  고리 조각      (밟을 수 없다. 전부 한 줄에 겹쳐 보이면 고리가 이어져 문이 열린다)
  *   .~  교대 칸        (색과 무관하게 밟히고, 밟으면 조종권이 반대편 큐브로 넘어간다)
+ *   b/  r/  뒤집히는 칸 (적힌 색이 지금 윗면이다. 밟고 떠나면 180° 뒤집혀 반대색이 된다)
  *
  * 한 줄이 깊이 한 겹이다. 첫 줄이 카메라에서 가장 가까운 앞 겹(z=0),
  * 그다음 줄이 한 겹 뒤(z=-1) 다. 열은 x, 즉 화면 가로다.
@@ -47,6 +48,8 @@ export interface Stage {
   /** 층의 아래위 끝. 카메라가 담을 범위를 잡는 데 쓴다. */
   readonly low: number;
   readonly high: number;
+  /** 뒤집히는 칸이 몇 개인지. 판 상태 비트의 자릿수다. */
+  readonly flipCount: number;
   /** 고리 조각이 하나라도 있으면 문이 잠겨 있다. */
   readonly sealed: boolean;
   /** 교대 칸이 있으면 한 번에 한 큐브만 움직인다. */
@@ -58,6 +61,7 @@ export interface Stage {
 const COLORS: Readonly<Record<string, ColorId | null>> = { b: 'blue', r: 'red', '.': null };
 const KINDS: Readonly<Record<string, TileKind>> = {
   '.': 'floor',
+  '/': 'flip',
   '!': 'switch',
   '*': 'goal',
   '?': 'ghost',
@@ -73,6 +77,8 @@ const backward = (row: number): number => (row === 0 ? 0 : -row);
 export function parseStage(spec: StageSpec): Stage {
   const floors = spec.floors ?? [{ y: 0, rows: spec.rows ?? [] }];
   const tiles: Tile[] = [];
+  /** 뒤집히는 칸에 차례대로 매기는 번호. 판 상태를 비트로 들고 다니는 데 쓴다. */
+  let flips = 0;
   let width = 0;
   let depth = 0;
 
@@ -97,7 +103,12 @@ export function parseStage(spec: StageSpec): Stage {
         if (COLORLESS.has(kind) !== (color === null)) {
           throw new Error(`스테이지 "${spec.name}" 의 "${cell}" 은 색이 ${color ? '없어야' : '있어야'} 한다`);
         }
-        tiles.push({ pos: vec(x, floor.y, backward(row)), color, kind });
+        tiles.push({
+          pos: vec(x, floor.y, backward(row)),
+          color,
+          kind,
+          flipBit: kind === 'flip' ? flips++ : -1,
+        });
       });
     });
   }
@@ -133,6 +144,7 @@ export function parseStage(spec: StageSpec): Stage {
     low: Math.min(...tiles.map((t) => t.pos.y)),
     high: Math.max(...tiles.map((t) => t.pos.y)),
     sealed: tiles.some((t) => t.kind === 'sigil'),
+    flipCount: flips,
     relay: tiles.some((t) => t.kind === 'relay'),
     twoSided: sides.includes('under'),
   };

@@ -126,6 +126,8 @@ export class World {
   onSettled: (() => void) | null = null;
   /** 문이 열리거나 닫히는 순간 */
   onGate: ((open: boolean) => void) | null = null;
+  /** 발판이 넘어가는 순간 */
+  onFlip: (() => void) | null = null;
 
   get busy(): boolean {
     if (this.cubes.some((c) => c.busy)) return true;
@@ -206,10 +208,10 @@ export class World {
     this.joined = merged(state);
     const open = unsealed(state.stage, state.view) && this.joined;
     this.ghosts.clear();
-    for (const solid of layout(state.stage, state.view)) {
+    for (const solid of layout(state.stage, state.view, state.flipped)) {
       if (solid.tile.kind === 'ghost') this.ghosts.add(solid.tile);
     }
-    this.board?.sync(state.view, open, this.ghosts);
+    this.board?.sync(state.view, open, this.ghosts, state.flipped);
     this.lead = state.pieces[state.active]?.done
       ? state.pieces.findIndex((p) => !p.done)
       : state.active;
@@ -231,6 +233,11 @@ export class World {
       if (!cube) continue;
       if (outcome.kind === 'move') {
         cube.roll(outcome.from, outcome.to, outcome.toward, forwardOf(this.view), outcome.painted, outcome.entered);
+        // 떠난 자리가 뒤집히는 칸이면 큐브가 구르는 동안 등 뒤에서 넘어간다
+        if (outcome.turned) {
+          this.board?.turnOver(outcome.from);
+          this.onFlip?.();
+        }
       } else {
         cube.refuse(outcome.toward);
         if (outcome.blocked) this.board?.flash(outcome.blocked);

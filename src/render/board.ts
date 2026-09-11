@@ -13,7 +13,7 @@ import {
 } from 'three';
 import type { Stage } from '../core/stage';
 import { layout } from '../core/game';
-import type { Solid, Tile, Vec3, ViewIndex } from '../core/types';
+import { other, type Solid, type Tile, type Vec3, type ViewIndex } from '../core/types';
 import { DEEP, GOLD, PALETTE, STONE, UNPRINTED, type Ink } from './palette';
 import { slabTexture } from './textures';
 import { clamp01, easeInOutCubic, easeOutCubic } from './easing';
@@ -99,14 +99,27 @@ interface TileView {
   readonly facing: Object3D[];
   /** 문짝. 열릴 때 경첩을 축으로 젖혀진다. */
   readonly leaves: { readonly hinge: Group; readonly dir: number }[];
+  /** 뒤집히는 칸이면 몸통을 매단 축. 여기를 돌려서 발판을 넘긴다. */
+  readonly flip: Group | null;
   readonly ghost: boolean;
   flash: number;
   alive: number;
+  /** 지금까지 넘어간 횟수와, 화면이 실제로 따라간 각도 */
+  turns: number;
+  spun: number;
 }
 
-type Built = Omit<TileView, 'tile' | 'cell' | 'flash' | 'alive' | 'ghost'>;
+type Built = Omit<TileView, 'tile' | 'cell' | 'flash' | 'alive' | 'ghost' | 'turns' | 'spun'>;
 
-const empty = (): Built => ({ skin: [], banded: [], flats: [], lit: [], facing: [], leaves: [] });
+const empty = (): Built => ({
+  skin: [],
+  banded: [],
+  flats: [],
+  lit: [],
+  facing: [],
+  leaves: [],
+  flip: null,
+});
 
 /** 스테이지 한 판의 발판 전부. 스테이지가 바뀌면 통째로 버린다. */
 export class Board {
@@ -135,7 +148,16 @@ export class Board {
     const cell = new Group();
     cell.position.set(tile.pos.x, tile.pos.y, tile.pos.z);
     this.group.add(cell);
-    const seed = { tile, cell, flash: 0, alive: tile.kind === 'ghost' ? 0 : 1, ghost: tile.kind === 'ghost' };
+    const seed = {
+      tile,
+      cell,
+      flash: 0,
+      alive: tile.kind === 'ghost' ? 0 : 1,
+      ghost: tile.kind === 'ghost',
+      turns: 0,
+      spun: 0,
+    };
+    if (tile.kind === 'flip') return { ...seed, ...this.buildFlip(tile, cell) };
     if (tile.kind === 'sigil') return { ...seed, ...this.buildSigil(cell, nth, of) };
     if (tile.kind === 'goal') return { ...seed, ...this.buildGoal(tile, cell) };
     return { ...seed, ...this.buildFloor(tile, cell) };
@@ -199,6 +221,30 @@ export class Board {
       stamp(ARROW, DEEP, SLAB_MID - 0.19, -Math.PI / 2);
     }
     return { ...built, flats };
+  }
+
+  /**
+   * 뒤집히는 칸. 위아래가 반대색으로 칠해진 판때기 한 장이다.
+   * 밟고 떠나면 제자리에서 180° 넘어가고, 그러면 아랫면이 올라와 색이 바뀐다 —
+   * 색이 왜 바뀌는지를 설명할 필요가 없다. 넘어가는 걸 그냥 보면 되니까.
+   *
+   * 축을 카메라 쪽으로 돌려 두어서, 어느 시점에서 보든 앞으로 넘어오는 것으로 읽힌다.
+   * 몸통이 정사각이고 옆면 넷이 같은 무늬라 축을 돌려도 가만히 있을 때의 모습은 그대로다.
+   */
+  private buildFlip(tile: Tile, cell: Group): Built {
+    const face = PALETTE[tile.color ?? 'blue'];
+    const back = PALETTE[other(tile.color ?? 'blue')];
+    const { all, banded } = this.slabSkin(face, back);
+
+    const slab = new Mesh(SLAB, all);
+    const pivot = new Group();
+    pivot.position.y = SLAB_MID;
+    pivot.add(slab);
+    const facing = new Group();
+    facing.add(pivot);
+    cell.add(facing);
+
+    return { ...empty(), skin: all, banded, facing: [facing], flip: pivot };
   }
 
   /**
@@ -282,12 +328,12 @@ export class Board {
   }
 
   /** 시점이 바뀌면 판을 다시 맞춘다. */
-  sync(view: ViewIndex, open: boolean, ghosts: ReadonlySet<Tile>): void {
+  sync(view: ViewIndex, open: boolean, ghosts: ReadonlySet<Tile>, flipped: number): void {
     if (open !== this.aligned) this.onGate?.(open);
     this.aligned = open;
     this.ghosts = ghosts;
     const live = new Map<Tile, Solid>();
-    for (const solid of layout(this.stage, view)) live.set(solid.tile, solid);
+    for (const solid of layout(this.stage, view, flipped)) live.set(solid.tile, solid);
 
     for (const v of this.views) {
       if (!v.ghost) continue;
@@ -306,11 +352,21 @@ export class Board {
     this.swing = this.aligned ? 1 : 0;
   }
 
-  /** 색이 달라 못 밟은 칸을 한 번 밝힌다 */
-  flash(pos: Vec3): void {
-    const hit = this.views.find(
+  /** 큐브가 떠난 칸을 한 번 넘긴다. 아랫면이 올라오면서 색이 반대로 바뀐다. */
+  turnOver(pos: Vec3): void {
+    const hit = this.at(pos);
+    if (hit?.flip) hit.turns += 1;
+  }
+
+  private at(pos: Vec3): TileView | undefined {
+    return this.views.find(
       (v) => v.tile.pos.x === pos.x && v.tile.pos.y === pos.y && v.tile.pos.z === pos.z,
     );
+  }
+
+  /** 색이 달라 못 밟은 칸을 한 번 밝힌다 */
+  flash(pos: Vec3): void {
+    const hit = this.at(pos);
     if (hit) hit.flash = 1;
   }
 
@@ -346,6 +402,13 @@ export class Board {
         WANT.copy(this.aligned ? l.on : l.off);
         if (this.aligned) WANT.multiplyScalar(1 + beat * 0.16);
         l.mat.color.lerp(WANT, 1 - Math.exp(-dt * 6));
+      }
+
+      // 넘어가는 발판. 목표 각도로 빠르게 붙었다가 잦아든다.
+      if (v.flip) {
+        const want = v.turns * Math.PI;
+        v.spun += (want - v.spun) * (1 - Math.exp(-dt * 9));
+        v.flip.rotation.x = v.spun;
       }
 
       // 이어진 고리는 살짝 떠오른다
