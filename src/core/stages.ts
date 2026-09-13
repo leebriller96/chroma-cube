@@ -1,4 +1,4 @@
-import { parseStage, type Stage, type StageSpec } from './stage';
+import { floorsOf, parseStage, type Cell, type Stage, type StageSpec } from './stage';
 
 /**
  * 각 줄이 깊이 한 겹이다. 첫 줄이 앞, 아래로 갈수록 뒤.
@@ -345,6 +345,65 @@ const SPECS: readonly StageSpec[] = [
     startColor: 'red',
     startView: 1,
   },
+  {
+    /**
+     * 나선 계단 두 개. 한 층 한 층 좌표로 계산해 짓는다 — 손으로 쓴 글자 지도로는 못 만드는 높이다.
+     *
+     * 나선의 한 변은 한 시점에서만 계단으로 보인다. 모서리에 닿으면 그 시점에서는 더 오를 수 없어서
+     * 돌려야 다음 변이 계단으로 드러난다. 그래서 한 바퀴를 오르는 동안 네 번 돌려야 한다.
+     *
+     * 1. 파란 탑을 한 바퀴 오른다. 계단은 뒤집히는 칸이라 등 뒤에서 빨갛게 넘어간다.
+     * 2. 꼭대기 스위치가 몸을 빨갛게 바꾼다. 방금 오른 계단이 이제 내려가는 길이다.
+     * 3. 바닥까지 되짚어 내려와, 땅보다 한 층 낮게 깔린 다리를 건넌다.
+     * 4. 빨간 탑을 두 바퀴 올라 꼭대기의 문으로 들어간다.
+     *
+     * 두 탑과 다리는 어느 시점에서도 같은 세로줄로 접히지 않게 떨어뜨려 두었다.
+     * 접히는 순간 겹 끝의 칸이 낚여서 한 번에 질러가 버리기 때문이다.
+     * 최단 69수 · 전환 15번 · 높이 25층.
+     */
+    name: '하늘 계단',
+    hint: '한 면은 한 시점에서만 계단이다. 파랗게 오르고, 빨갛게 내려와, 더 높이 오른다',
+    floors: floorsOf(skyStairs()),
+    start: [[0, 0, 0]],
+    startColor: 'blue',
+  },
 ];
 
 export const STAGES: readonly Stage[] = SPECS.map(parseStage);
+
+/**
+ * 한 변이 side 칸인 네모 둘레에서 j 번째 칸 자리. 한 걸음마다 한 층씩 오른다.
+ * 둘레를 도는 순서대로 +x, -z, -x, +z 네 변이고, 변 하나가 시점 하나에 대응한다.
+ */
+function spiral(ox: number, oz: number, j: number, side = 3): [x: number, y: number, z: number] {
+  const lap = side * 4;
+  const k = j % lap;
+  const i = k % side;
+  const edge = Math.floor(k / side);
+  const [dx, dz] =
+    edge === 0 ? [i, 0] : edge === 1 ? [side, -i] : edge === 2 ? [side - i, -side] : [0, -side + i];
+  return [ox + dx, j, oz + dz];
+}
+
+/** 「하늘 계단」의 칸 전부 */
+function skyStairs(): Cell[] {
+  const cells: Cell[] = [];
+
+  // 파란 탑: 뒤집히는 칸으로 한 바퀴 오르고, 꼭대기에 빨강 스위치
+  for (let j = 0; j < 12; j += 1) cells.push([...spiral(0, 0, j), 'b/']);
+  cells.push([...spiral(0, 0, 12), 'r!']);
+
+  // 다리: 땅보다 한 층 낮게 깐다. 같은 높이면 파란 탑의 첫 계단보다 먼저 잡혀서 오르지를 못한다.
+  // 대각선으로 놓아 어느 시점에서도 한 줄로 접히지 않게 한다.
+  const bridge: readonly (readonly [number, number])[] = [
+    [0, -1], [1, -1], [1, -2], [2, -2], [2, -3], [3, -3],
+    [3, -4], [4, -4], [4, -5], [5, -5], [5, -6],
+  ];
+  for (const [x, z] of bridge) cells.push([x, -1, z, 'r.']);
+
+  // 빨간 탑: 두 바퀴. 꼭대기가 문이다.
+  for (let j = 0; j < 24; j += 1) cells.push([...spiral(6, -6, j), 'r.']);
+  cells.push([...spiral(6, -6, 24), 'r*']);
+
+  return cells;
+}

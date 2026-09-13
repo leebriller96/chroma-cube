@@ -74,6 +74,38 @@ const COLORLESS: ReadonlySet<TileKind> = new Set<TileKind>(['ghost', 'sigil', 'r
 /** 지도의 n번째 줄이 놓이는 z. 첫 줄이 0, 뒤로 갈수록 작아진다. (-0 을 피한다) */
 const backward = (row: number): number => (row === 0 ? 0 : -row);
 
+/** [x, y, z, 글자] — 좌표로 적은 칸 하나 */
+export type Cell = readonly [x: number, y: number, z: number, glyph: string];
+
+/**
+ * 좌표로 적은 칸들을 층별 글자 지도로 접는다.
+ *
+ * 나선 계단처럼 좌표로 계산해서 짓는 판은 층마다 글자 지도를 손으로 쓸 수가 없다.
+ * 그런 판도 결국 같은 글자 지도로 바꿔 parseStage 를 통과시키므로, 규칙은 한 군데에만 있다.
+ * x 는 0 이상, z 는 0 이하여야 한다 (첫 줄이 z=0 인 글자 지도의 약속 그대로).
+ */
+export function floorsOf(cells: readonly Cell[]): NonNullable<StageSpec['floors']> {
+  const width = Math.max(...cells.map(([x]) => x)) + 1;
+  const depth = Math.max(...cells.map(([, , z]) => -z)) + 1;
+  const byFloor = new Map<number, string[][]>();
+
+  for (const [x, y, z, glyph] of cells) {
+    if (x < 0 || z > 0) throw new Error(`칸 (${x}, ${y}, ${z}) 이 지도 밖이다 — x 는 0 이상, z 는 0 이하`);
+    let grid = byFloor.get(y);
+    if (!grid) {
+      grid = Array.from({ length: depth }, () => Array.from({ length: width }, () => '..'));
+      byFloor.set(y, grid);
+    }
+    const row = grid[-z] as string[];
+    if (row[x] !== '..') throw new Error(`칸 (${x}, ${y}, ${z}) 에 두 번 적었다`);
+    row[x] = glyph;
+  }
+
+  return [...byFloor.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([y, grid]) => ({ y, rows: grid.map((cols) => cols.join(' ')) }));
+}
+
 export function parseStage(spec: StageSpec): Stage {
   const floors = spec.floors ?? [{ y: 0, rows: spec.rows ?? [] }];
   const tiles: Tile[] = [];

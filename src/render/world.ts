@@ -39,6 +39,11 @@ const MIN_HALF_X = 2.8;
 const MAX_FIT = 15;
 /** 그 이상 물러나면 발판이 콩알만 해진다 */
 const MAX_HALF_Y = 5.4;
+/**
+ * 판이 이보다 높으면 한 화면에 통째로 담지 않는다. 담으면 발판이 콩알만 해지니까.
+ * 대신 이만큼의 높이만 보여 주고, 큐브를 따라 위아래로 올라간다 — 오르는 맛이 나도록.
+ */
+const TALL_SPAN = 11;
 /** 카메라가 플레이어를 따라가는 속도 */
 const FOLLOW = 6;
 /** 손가락을 이만큼(90° 대비) 끌어야 시점이 넘어간다 */
@@ -90,6 +95,8 @@ export class World {
   private readonly desired = new Vector3();
   private spanX = 9;
   private spanY = 4.4;
+  /** 한 화면에 다 못 담을 만큼 높은 판이면, 큐브를 따라 위아래로도 움직인다 */
+  private tall = false;
   /** 이번 판을 드러낼 때 처음 잡는 배율. 1 이면 드러내기 없이 그냥 시작한다. */
   private revealFrom = 1;
   private revealMs = INTRO_MS;
@@ -169,7 +176,9 @@ export class World {
     this.stage = stage;
     this.centre.set((stage.width - 1) / 2, 0.2 + (stage.low + stage.high) / 2, -(stage.depth - 1) / 2);
     this.spanX = Math.max(stage.width, stage.depth) + 2.6;
-    this.spanY = 4.4 + (stage.high - stage.low);
+    const fullY = 4.4 + (stage.high - stage.low);
+    this.tall = fullY > TALL_SPAN;
+    this.spanY = Math.min(fullY, TALL_SPAN);
 
     // 겹이 뒤로 갈수록 어두워지도록 안개를 판에 맞춰 잡는다
     this.fog.near = DISTANCE - (stage.depth - 1) / 2 - 0.4;
@@ -193,7 +202,7 @@ export class World {
     this.board?.settle();
     // 판을 세우면서 나는 여닫힘은 소리를 내지 않는다. 지금부터가 진짜다.
     if (this.board) this.board.onGate = (open) => this.onGate?.(open);
-    this.aimAt(this.clampFocus(screenX(this.focusPoint(), view)));
+    this.aimAt(this.clampFocus(screenX(this.focusPoint(), view)), this.clampFocusY(this.focusPoint().y));
     this.target.copy(this.desired);
   }
 
@@ -315,7 +324,7 @@ export class World {
     if (!this.stage) return;
     // 도는 동안에는 보는 점을 그대로 둔다. 회전과 가로 이동이 겹치면 화면이 휩쓸리듯 흔들린다.
     const turning = this.dragFrom !== null || Math.abs(this.azimuthTo - this.azimuth) > 0.02;
-    if (!turning) this.aimAt(this.clampFocus(screenX(this.focusPoint(), this.view)));
+    if (!turning) this.aimAt(this.clampFocus(screenX(this.focusPoint(), this.view)), this.clampFocusY(this.focusPoint().y));
     this.target.lerp(this.desired, 1 - Math.exp(-dt * FOLLOW));
   }
 
@@ -337,10 +346,24 @@ export class World {
   }
 
   /** 화면 가로 좌표를 월드의 카메라 초점으로 옮긴다. 깊이는 늘 판 한가운데. */
-  private aimAt(focus: number): void {
+  private aimAt(focus: number, height: number): void {
     const r = rightOf(this.view);
     const shift = focus - screenX(this.centre, this.view);
-    this.desired.set(this.centre.x + r.x * shift, this.centre.y, this.centre.z + r.z * shift);
+    this.desired.set(this.centre.x + r.x * shift, height, this.centre.z + r.z * shift);
+  }
+
+  /**
+   * 높은 판에서는 큐브를 따라 위아래로도 움직인다.
+   * 큐브를 화면 한가운데보다 조금 아래에 두어, 올라갈 쪽이 더 넓게 보이게 한다.
+   * 판 아래위 끝 너머의 허공까지는 따라가지 않는다.
+   */
+  private clampFocusY(y: number): number {
+    const stage = this.stage;
+    if (!stage || !this.tall) return this.centre.y;
+    const half = this.camera.top;
+    const lo = stage.low - 0.6 + half;
+    const hi = stage.high + 1.6 - half;
+    return lo > hi ? this.centre.y : Math.min(Math.max(y + 1.6, lo), hi);
   }
 
   private placeCamera(): void {
