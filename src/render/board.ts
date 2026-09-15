@@ -26,6 +26,17 @@ const BUTTON = new CircleGeometry(0.15, 24);
 const BUTTON_RING = new RingGeometry(0.19, 0.225, 24);
 /** 교대 칸 자국. 위아래로 갈라지는 두 삼각형이다. */
 const ARROW = new CircleGeometry(0.11, 3);
+/**
+ * 뒤집히는 칸의 표식. 색 경계 한가운데에 박힌 상아색 메달과, 그 위에서 서로를 쫓는 화살표 둘.
+ * 위아래 반반 칠해진 발판은 교대 판의 안 뒤집히는 칸에도 있어서, 색만으로는 둘을 못 가른다.
+ * "돈다"는 뜻은 이 표식 하나가 맡는다.
+ */
+const TURN_DISC = new CircleGeometry(0.24, 32);
+const TURN_R = 0.15;
+const TURN_ARC_FROM = 0.45;
+const TURN_ARC_LEN = 2.15;
+const TURN_ARC = new RingGeometry(TURN_R - 0.028, TURN_R + 0.028, 24, 1, TURN_ARC_FROM, TURN_ARC_LEN);
+const TURN_HEAD = new CircleGeometry(0.068, 3);
 
 /** 문 안쪽 구멍의 반너비와 높이 */
 const GATE_W = 0.46;
@@ -230,6 +241,8 @@ export class Board {
    *
    * 축을 카메라 쪽으로 돌려 두어서, 어느 시점에서 보든 앞으로 넘어오는 것으로 읽힌다.
    * 몸통이 정사각이고 옆면 넷이 같은 무늬라 축을 돌려도 가만히 있을 때의 모습은 그대로다.
+   *
+   * 앞뒤 면에 회전 표식을 붙인다. 넘어가면 뒷면이 앞으로 오므로 표식도 두 장이다.
    */
   private buildFlip(tile: Tile, cell: Group): Built {
     const face = PALETTE[tile.color ?? 'blue'];
@@ -240,11 +253,38 @@ export class Board {
     const pivot = new Group();
     pivot.position.y = SLAB_MID;
     pivot.add(slab);
+
+    const flats: { mat: MeshBasicMaterial; hue: Color }[] = [];
+    const paint = (geo: CircleGeometry | RingGeometry, hue: Color, parent: Group): Mesh => {
+      const mat = new MeshBasicMaterial({ color: hue.clone(), side: DoubleSide });
+      const mesh = new Mesh(geo, mat);
+      parent.add(mesh);
+      flats.push({ mat, hue: hue.clone() });
+      return mesh;
+    };
+    for (const [z, ry] of [[0.483, 0], [-0.483, Math.PI]] as const) {
+      const medal = new Group();
+      medal.position.z = z;
+      medal.rotation.y = ry;
+      pivot.add(medal);
+      paint(TURN_DISC, STONE.light, medal);
+      for (const half of [0, Math.PI]) {
+        const arc = paint(TURN_ARC, DEEP, medal);
+        arc.rotation.z = half;
+        arc.position.z = 0.002;
+        // 화살촉은 호가 끝나는 자리에서 도는 방향(반시계)을 가리킨다
+        const end = TURN_ARC_FROM + TURN_ARC_LEN + half;
+        const head = paint(TURN_HEAD, DEEP, medal);
+        head.position.set(TURN_R * Math.cos(end), TURN_R * Math.sin(end), 0.003);
+        head.rotation.z = end + Math.PI / 2;
+      }
+    }
+
     const facing = new Group();
     facing.add(pivot);
     cell.add(facing);
 
-    return { ...empty(), skin: all, banded, facing: [facing], flip: pivot };
+    return { ...empty(), skin: all, banded, flats, facing: [facing], flip: pivot };
   }
 
   /**

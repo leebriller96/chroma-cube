@@ -94,6 +94,35 @@ describe('targetSolid', () => {
     expect(targetSolid(all, vec(1, 1, 0), 0, 1)).toMatchObject({ pos: vec(2, 0, 0) });
   });
 
+  it('머리 높이에 칸이 있으면 그 밑에 다른 겹의 평지가 있어도 계단으로 오른다', () => {
+    const step = parseStage({
+      name: 'step',
+      hint: '',
+      floors: [
+        { y: 0, rows: ['b. ..', '.. b.'] }, // (1,0,-1) — 한 겹 뒤의 평지. 정면에서는 계단 칸 바로 밑에 겹쳐 보인다
+        { y: 1, rows: ['.. b.'] }, // (1,1,0) — 머리 높이의 칸
+      ],
+      start: [[0, 0, 0]],
+      startColor: 'blue',
+    });
+    expect(targetSolid(layout(step, 0), vec(0, 0, 0), 0, 1)).toMatchObject({ pos: vec(1, 1, 0) });
+  });
+
+  it('두 칸 높이로 쌓여 보이면 벽이라 오르지 못한다', () => {
+    const wall = parseStage({
+      name: 'wall',
+      hint: '',
+      floors: [
+        { y: 0, rows: ['b. ..'] },
+        { y: 1, rows: ['.. b.'] },
+        { y: 2, rows: ['.. ..', '.. b.'] }, // 겹은 달라도 화면에서는 계단 칸 위에 얹혀 보인다
+      ],
+      start: [[0, 0, 0]],
+      startColor: 'blue',
+    });
+    expect(targetSolid(layout(wall, 0), vec(0, 0, 0), 0, 1)).toBeUndefined();
+  });
+
   it('그 줄에 아무것도 없으면 목적지가 없다', () => {
     expect(targetSolid(solids(s0), vec(0, 0, 0), 0, -1)).toBeUndefined();
   });

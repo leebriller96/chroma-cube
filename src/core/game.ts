@@ -148,6 +148,14 @@ export function unsealed(stage: Stage, view: ViewIndex): boolean {
  * 이 게임의 심장. 화면은 2D 라서 깊이가 접힌다.
  * 화면 기준 한 칸 옆 세로줄에 겹쳐 보이는 칸들 중 카메라에 가장 가까운 하나가 실제 목적지다.
  * 뒤에 숨은 칸은 시점을 돌려 앞으로 끌어내야만 밟을 수 있다.
+ *
+ * 높이는 **화면에 보이는 그림만으로** 정한다. 옆 세로줄을 아래에서 위로 보면:
+ *   - 큐브 머리 높이(한 층 위)에 칸이 있으면 그건 계단이다. 오른다.
+ *     그 위(두 층 위)에도 칸이 있으면 두 칸 높이로 쌓인 벽이다. 못 간다.
+ *   - 머리 높이가 비어 있으면 같은 높이의 평지로 걷고, 그것도 없으면 한 층 내려선다.
+ * 같은 높이를 먼저 찾으면 안 된다. 머리 높이의 칸 밑에 다른 겹의 평지가 깔려 있을 때
+ * 계단처럼 보이는 칸을 두고 큐브가 그 칸 속으로 파고들어, 같은 그림이 어떤 때는 계단이고
+ * 어떤 때는 벽이 되어 버린다.
  */
 export function targetSolid(
   solids: readonly Solid[],
@@ -156,17 +164,18 @@ export function targetSolid(
   step: Step,
 ): Solid | undefined {
   const column = screenX(from, view) + step;
-  // 평지가 먼저, 없으면 한 칸 올라서고, 그것도 없으면 한 칸 내려선다
-  for (const y of [from.y, from.y + 1, from.y - 1]) {
+  const frontAt = (y: number): Solid | undefined => {
     let front: Solid | undefined;
     for (const solid of solids) {
       if (solid.pos.y !== y) continue;
       if (screenX(solid.pos, view) !== column) continue;
       if (!front || depthOf(solid.pos, view) < depthOf(front.pos, view)) front = solid;
     }
-    if (front) return front;
-  }
-  return undefined;
+    return front;
+  };
+  const stair = frontAt(from.y + 1);
+  if (stair) return frontAt(from.y + 2) ? undefined : stair;
+  return frontAt(from.y) ?? frontAt(from.y - 1);
 }
 
 export function towardOf(view: ViewIndex, step: Step): Vec3 {

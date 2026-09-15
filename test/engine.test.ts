@@ -37,7 +37,7 @@ describe('퍼즐 탐색기', () => {
       const start = stage.starts[0];
       const i = stage.tiles.findIndex((t) => t.pos.x === start?.x && t.pos.y === start?.y && t.pos.z === start?.z);
       const r = analyze(tiles, { i, c: 0, v: stage.startView });
-      expect(r?.traps ?? 0).toBeGreaterThanOrEqual(5);
+      expect(r?.traps ?? 0).toBeGreaterThanOrEqual(4);
     }
   });
 });
