@@ -15,6 +15,11 @@ let index = 0;
 let state: GameState = startOf(stageAt(0));
 /** 이번 착지에서 스위치를 밟았는지. 착지 소리와 함께 물드는 소리를 내려고 들고 있는다. */
 let pendingPaint = false;
+/**
+ * 되돌리기용. 수를 두거나 시점을 돌리기 직전의 상태를 쌓는다.
+ * 뒤집히는 칸은 한 번 밟으면 되돌릴 수 없어서, 긴 퍼즐 판에서 한 수 실수로 처음부터 다시 하지 않게 한다.
+ */
+const history: GameState[] = [];
 
 function stageAt(i: number) {
   const stage = STAGES[i];
@@ -26,6 +31,7 @@ const hud = new Hud({
   move: (s) => move(s),
   turn: (d) => turn(d),
   restart: () => load(index),
+  undo: () => undo(),
   next: () => advance(),
   jump: (i) => {
     sfx.unlock();
@@ -56,6 +62,7 @@ world.onSettled = () => {
 function load(i: number): void {
   index = i;
   state = startOf(stageAt(i));
+  history.length = 0;
   world.setStage(state);
   // 판이 크면 카메라가 쭉 물러나며 전체를 드러낸다. 바람 소리를 거기 얹는다.
   if (world.revealing) sfx.wind(2.1);
@@ -74,6 +81,7 @@ function move(step: Step): void {
 
   const { state: next, outcomes } = attempt(state, step);
   pendingPaint = outcomes.some((o) => o.kind === 'move' && o.painted !== null);
+  if (next !== state) history.push(state);
   state = next;
   world.play(outcomes);
   world.sync(state);
@@ -83,9 +91,22 @@ function move(step: Step): void {
 function turn(d: Turn): void {
   sfx.unlock();
   if (world.busy) return;
+  history.push(state);
   state = rotate(state, d);
   world.turn(d, state.view);
   world.sync(state);
+  hud.setStatus(state);
+  sfx.turn();
+}
+
+/** 한 수 되돌린다. 걸음이든 시점 전환이든 한 번에 하나씩. */
+function undo(): void {
+  sfx.unlock();
+  if (world.busy || state.cleared) return;
+  const prev = history.pop();
+  if (!prev) return;
+  state = prev;
+  world.restore(state);
   hud.setStatus(state);
   sfx.turn();
 }
@@ -111,6 +132,7 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowRight': move(1); break;
     case 'a': case 'A': case 'ㅁ': case 'q': case 'Q': turn(-1); break;
     case 'd': case 'D': case 'ㅇ': case 'e': case 'E': turn(1); break;
+    case 'z': case 'Z': case 'ㅋ': case 'Backspace': undo(); break;
     default: return;
   }
   e.preventDefault();
@@ -152,6 +174,7 @@ const release = (e: PointerEvent): void => {
   }
   const turns = world.endDrag();
   const d: Turn = turns < 0 ? -1 : 1;
+  if (turns !== 0) history.push(state);
   for (let i = 0; i < Math.abs(turns); i += 1) state = rotate(state, d);
   if (turns !== 0) {
     world.sync(state);

@@ -206,6 +206,24 @@ export class World {
     this.target.copy(this.desired);
   }
 
+  /**
+   * 되돌리기. 판은 새로 세우지 않고, 큐브와 뒤집힌 칸만 그 수의 모습으로 되살린다.
+   * 시점이 달라졌으면 카메라는 뚝 끊기지 않고 그쪽으로 돌아간다.
+   */
+  restore(state: GameState): void {
+    state.pieces.forEach((piece, i) => {
+      const cube = this.cubes[i];
+      if (!cube) return;
+      cube.setSide(piece.side);
+      cube.place(piece.pos, piece.color);
+      if (piece.done) cube.vanish();
+    });
+    this.board?.placeFlips(state.flipped);
+    const delta = (((state.view - this.view) % 4) + 4) % 4;
+    if (delta !== 0) this.azimuthTo += ((delta === 3 ? -1 : delta) * Math.PI) / 2;
+    this.sync(state);
+  }
+
   /** 이번 판이 드러내기를 하는지. 바람 소리를 낼지 정하는 데 쓴다. */
   get revealing(): boolean {
     return this.revealFrom < 0.5;

@@ -358,6 +358,16 @@ export class Board {
     if (hit?.flip) hit.turns += 1;
   }
 
+  /** 되돌리기로 한 수 전의 판을 되살릴 때. 뒤집힌 칸을 넘어가는 모습 없이 그 상태로 놓는다. */
+  placeFlips(flipped: number): void {
+    for (const v of this.views) {
+      if (!v.flip || v.tile.flipBit < 0) continue;
+      v.turns = (flipped >> v.tile.flipBit) & 1;
+      v.spun = v.turns * Math.PI;
+      v.flip.rotation.x = v.spun;
+    }
+  }
+
   private at(pos: Vec3): TileView | undefined {
     return this.views.find(
       (v) => v.tile.pos.x === pos.x && v.tile.pos.y === pos.y && v.tile.pos.z === pos.z,

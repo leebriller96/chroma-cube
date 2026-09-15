@@ -7,6 +7,8 @@ export interface HudHandlers {
   readonly move: (step: Step) => void;
   readonly turn: (d: Turn) => void;
   readonly restart: () => void;
+  /** 한 수 되돌리기 */
+  readonly undo: () => void;
   readonly next: () => void;
   /** 아무 판으로나 건너뛴다. 위쪽 점을 누르면 여기로 온다. */
   readonly jump: (index: number) => void;
@@ -44,10 +46,11 @@ export class Hud {
 
     this.hint.append(this.title, this.tip);
     this.legend.append(this.chips, this.note, this.count);
-    this.legend.append(make('span', 'keys', '← → 이동 · A D 시점 · [ ] 판 넘기기 · R 다시'));
+    this.legend.append(make('span', 'keys', '← → 이동 · A D 시점 · Z 되돌리기 · R 다시 · [ ] 판 넘기기'));
 
     const pad = make('div', 'pad');
     const buttons: readonly [string, string, () => void][] = [
+      ['⤺', '한 수 되돌리기 (Z)', () => handlers.undo()],
       ['↺', '시점 왼쪽 (A)', () => handlers.turn(-1)],
       ['◀', '왼쪽으로 (←)', () => handlers.move(-1)],
       ['▶', '오른쪽으로 (→)', () => handlers.move(1)],

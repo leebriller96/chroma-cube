@@ -171,6 +171,13 @@ export class Cube {
     return this.anim !== null;
   }
 
+  /** 문에 들어간 뒤의 모습으로 곧장 치운다. 되돌리기로 그 수를 되살릴 때 쓴다. */
+  vanish(): void {
+    this.anim = null;
+    this.sunk = true;
+    this.mesh.visible = false;
+  }
+
   place(cell: Vec3, color: ColorId): void {
     this.cell = cell;
     this.anim = null;
