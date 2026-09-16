@@ -123,6 +123,21 @@ describe('targetSolid', () => {
     expect(targetSolid(layout(wall, 0), vec(0, 0, 0), 0, 1)).toBeUndefined();
   });
 
+  it('제 머리 위가 막혀 있으면 계단을 오르지 못한다', () => {
+    const low = parseStage({
+      name: 'low',
+      hint: '',
+      floors: [
+        { y: 0, rows: ['b. ..'] },
+        { y: 1, rows: ['.. b.'] },
+        { y: 2, rows: ['.. ..', 'b. ..'] }, // (0,2,-1) — 겹은 달라도 화면에서는 큐브 바로 머리 위다
+      ],
+      start: [[0, 0, 0]],
+      startColor: 'blue',
+    });
+    expect(targetSolid(layout(low, 0), vec(0, 0, 0), 0, 1)).toBeUndefined();
+  });
+
   it('그 줄에 아무것도 없으면 목적지가 없다', () => {
     expect(targetSolid(solids(s0), vec(0, 0, 0), 0, -1)).toBeUndefined();
   });

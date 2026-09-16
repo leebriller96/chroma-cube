@@ -13,19 +13,19 @@ export function compile(tiles) {
     for (let v = 0; v < 4; v++) {
       for (let s = 0; s < 2; s++) {
         const col = sx(v, a.x, a.z) + (s ? 1 : -1);
-        const front = (dy) => {
+        const front = (dy, c = col) => {
           let best = -1;
           for (let j = 0; j < n; j++) {
             const b = tiles[j];
-            if (b.y !== a.y + dy || sx(v, b.x, b.z) !== col) continue;
+            if (b.y !== a.y + dy || sx(v, b.x, b.z) !== c) continue;
             if (best < 0 || dp(v, b.x, b.z) < dp(v, tiles[best].x, tiles[best].z)) best = j;
           }
           return best;
         };
-        // game.ts targetSolid 과 같다: 머리 높이의 칸은 계단, 그 위까지 막혔으면 벽, 아니면 평지 → 한 층 아래
+        // game.ts targetSolid 과 같다: 머리 높이의 칸은 계단, 그 위나 제 머리 위가 막혔으면 못 오름, 아니면 평지 → 한 층 아래
         const stair = front(1);
         let t;
-        if (stair >= 0) t = front(2) >= 0 ? -1 : stair;
+        if (stair >= 0) t = front(2) >= 0 || front(2, sx(v, a.x, a.z)) >= 0 ? -1 : stair;
         else { t = front(0); if (t < 0) t = front(-1); }
         tgt[(i * 4 + v) * 2 + s] = t;
       }
