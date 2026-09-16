@@ -1,5 +1,6 @@
 import './style.css';
 import { attempt, rotate, startOf, type GameState } from './core/game';
+import { Guide } from './core/guide';
 import { STAGES } from './core/stages';
 import type { Step, Turn } from './core/types';
 import { World } from './render/world';
@@ -20,6 +21,38 @@ let pendingPaint = false;
  * 뒤집히는 칸은 한 번 밟으면 되돌릴 수 없어서, 긴 퍼즐 판에서 한 수 실수로 처음부터 다시 하지 않게 한다.
  */
 const history: GameState[] = [];
+/**
+ * 지금 판의 길잡이. 판을 불러온 직후 한가할 때 짓는다 — 판이 드러나는 연출을 끊지 않으려고.
+ * 그 전에 물으면 그 자리에서 짓는다.
+ */
+let guide: Guide | null = null;
+/** 이번 상태에서 힌트를 물었는지. 수를 두면 도로 거둔다. */
+let asked = false;
+
+function guideNow(): Guide {
+  guide ??= new Guide(state.stage);
+  return guide;
+}
+
+/** 수를 둘 때마다 부른다. 갇혔는지 보고, 힌트를 물었으면 다음 수를 띄운다. */
+function refreshGuide(): void {
+  const g = guideNow();
+  const stuck = g.stuck(state);
+  hud.showGuide(stuck, asked && !stuck ? g.next(state) : null, g.remaining(state));
+}
+
+/** 상태가 바뀐 뒤 공통으로 할 일 */
+function changed(): void {
+  asked = false;
+  refreshGuide();
+}
+
+function hint(): void {
+  sfx.unlock();
+  if (state.cleared) return;
+  asked = true;
+  refreshGuide();
+}
 
 function stageAt(i: number) {
   const stage = STAGES[i];
@@ -32,6 +65,7 @@ const hud = new Hud({
   turn: (d) => turn(d),
   restart: () => load(index),
   undo: () => undo(),
+  hint: () => hint(),
   next: () => advance(),
   jump: (i) => {
     sfx.unlock();
@@ -69,6 +103,16 @@ function load(i: number): void {
   hud.setStage(i, STAGES.length, state.stage, STAGES.map((s) => s.name));
   hud.setStatus(state);
   hud.hideClear();
+
+  guide = null;
+  asked = false;
+  hud.showGuide(false, null, null);
+  const stage = state.stage;
+  setTimeout(() => {
+    if (state.stage !== stage || guide) return;
+    guide = new Guide(stage);
+    refreshGuide();
+  }, 60);
 }
 
 function move(step: Step): void {
@@ -86,6 +130,8 @@ function move(step: Step): void {
   world.play(outcomes);
   world.sync(state);
   hud.setStatus(state);
+  // 튕긴 걸음은 상태가 그대로라 띄워 둔 힌트도 그대로 둔다
+  if (outcomes.some((o) => o.kind === 'move')) changed();
 }
 
 function turn(d: Turn): void {
@@ -97,6 +143,7 @@ function turn(d: Turn): void {
   world.sync(state);
   hud.setStatus(state);
   sfx.turn();
+  changed();
 }
 
 /** 한 수 되돌린다. 걸음이든 시점 전환이든 한 번에 하나씩. */
@@ -109,6 +156,7 @@ function undo(): void {
   world.restore(state);
   hud.setStatus(state);
   sfx.turn();
+  changed();
 }
 
 function advance(): void {
@@ -133,6 +181,7 @@ document.addEventListener('keydown', (e) => {
     case 'a': case 'A': case 'ㅁ': case 'q': case 'Q': turn(-1); break;
     case 'd': case 'D': case 'ㅇ': case 'e': case 'E': turn(1); break;
     case 'z': case 'Z': case 'ㅋ': case 'Backspace': undo(); break;
+    case 'h': case 'H': case 'ㅗ': hint(); break;
     default: return;
   }
   e.preventDefault();
@@ -180,6 +229,7 @@ const release = (e: PointerEvent): void => {
     world.sync(state);
     sfx.turn();
     hud.setStatus(state);
+    changed();
   }
 };
 

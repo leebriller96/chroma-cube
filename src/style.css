@@ -185,7 +185,61 @@ html, body {
   transition: transform 120ms, background 120ms;
 }
 .pad button:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.85); }
+/* 힌트가 가리키는 버튼. 누를 때까지 숨 쉬듯 부푼다. */
+.pad button.cue {
+  border-color: var(--red);
+  animation: cue 1000ms ease-in-out infinite;
+}
+@keyframes cue {
+  50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(217, 99, 76, 0.22); }
+}
+
+/* 길잡이. 판 아래 가운데에 뜬다. 평소에는 없다. */
+.tell {
+  grid-area: 2 / 1;
+  align-self: end;
+  justify-self: center;
+  margin-bottom: 14px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: rgba(246, 234, 217, 0.94);
+  box-shadow: 0 6px 18px rgba(74, 66, 96, 0.14);
+  font-size: 13px;
+  font-weight: 600;
+  animation: rise 240ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+.tell.on, .tell.stuck { display: flex; }
+.tell .label { color: var(--faint); padding-left: 8px; }
+.tell kbd {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--sumi);
+  color: var(--paper);
+  font: inherit;
+  font-weight: 800;
+  text-shadow: none;
+}
+.tell.stuck {
+  padding-left: 16px;
+  border-color: var(--red);
+  color: var(--red);
+}
+.tell.stuck strong { font-weight: 850; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pad button.cue, .tell { animation: none; }
+}
 
 @media (max-width: 560px) {
   .legend { max-width: 62vw; }
+  .pad { gap: 6px; }
+  .pad button { width: 40px; height: 40px; font-size: 15px; }
 }

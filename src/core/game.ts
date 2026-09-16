@@ -266,13 +266,16 @@ export function rotate(state: GameState, d: Turn): GameState {
   return { ...state, view: turnView(state.view, d) };
 }
 
+/** 판 상태를 가르는 열쇠. 걸음 수처럼 앞으로의 수에 상관없는 것은 넣지 않는다. */
+export const stateKey = (s: GameState): string =>
+  s.pieces
+    .map((p) => [p.pos.x, p.pos.y, p.pos.z, p.color, p.side, p.done ? 1 : 0].join(','))
+    .join('|') + '@' + s.view + '/' + s.active + '#' + s.flipped;
+
 /** BFS 로 최단 수를 센다. 못 깨면 null. 이동과 회전을 모두 한 수로 친다. */
 export function solve(stage: Stage): number | null {
   const start = startOf(stage);
-  const key = (s: GameState): string =>
-    s.pieces
-      .map((p) => [p.pos.x, p.pos.y, p.pos.z, p.color, p.side, p.done ? 1 : 0].join(','))
-      .join('|') + '@' + s.view + '/' + s.active + '#' + s.flipped;
+  const key = stateKey;
   const seen = new Set<string>([key(start)]);
   const queue: { state: GameState; depth: number }[] = [{ state: start, depth: 0 }];
 
