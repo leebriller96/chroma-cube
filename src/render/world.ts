@@ -181,6 +181,8 @@ export class World {
     for (let i = 0; i < state.pieces.length; i += 1) this.badges.push(new Vector3());
     for (const piece of state.pieces) {
       const cube = new Cube();
+      // 큐브는 평소에 문을 쳐다본다. 문지기 눈도 큐브를 보니 서로 눈이 마주친다.
+      cube.gazeAt(stage.tiles.find((t) => t.kind === 'goal')?.pos ?? null);
       cube.onImpact = () => this.onImpact?.();
       cube.onLand = () => this.onLand?.();
       cube.onSettled = () => this.onSettled?.();
@@ -356,7 +358,7 @@ export class World {
       this.intro = Math.min(1, this.intro + (dt * 1000) / this.revealMs);
       this.frame();
     }
-    for (const cube of this.cubes) cube.update(dt);
+    for (const cube of this.cubes) cube.update(dt, this.azimuth);
     if (this.bond) {
       const spots = this.cubes.map((c, i) =>
         c.gone ? null : c.badgeAt(this.badges[i] as Vector3, BADGE_LIFT),
