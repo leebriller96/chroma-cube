@@ -48,6 +48,15 @@ const TALL_SPAN = 11;
 const FOLLOW = 6;
 /** 손가락을 이만큼(90° 대비) 끌어야 시점이 넘어간다 */
 const COMMIT = 0.4;
+/**
+ * 세로로 끌면 판을 위에서 내려다보거나 밑에서 올려다볼 수 있다. 입체로 한번 훑어보라는 것이다.
+ * 보기만 바뀔 뿐 판정은 늘 정면(2D) 기준이라, 손을 떼면 정면으로 돌아온다.
+ * 올려다보는 쪽은 조금만 — 발판 밑면만 보여서 금방 알아보기 어려워진다.
+ */
+const PITCH_UP = 0.95;
+const PITCH_DOWN = 0.35;
+/** 기울기가 제자리로 돌아오는 세기 */
+const PITCH_PULL = 7.5;
 const DISTANCE = 24;
 /** 작은 판이 시작할 때 살짝 당겨졌다 제자리로 오는 시간 */
 const INTRO_MS = 620;
@@ -87,6 +96,11 @@ export class World {
   private azimuthVel = 0;
   /** 손가락으로 돌리는 중이면 그 시작 각도 */
   private dragFrom: number | null = null;
+  /** 세로로 끌어 기울인 각도와 그 속도. 위에서 내려다볼수록 크다. */
+  private pitch = 0;
+  private pitchVel = 0;
+  /** 손가락이 원하는 기울기. 놓으면 0 이다. */
+  private dragPitch = 0;
   private intro = 1;
   private stage: Stage | null = null;
   /** 판의 한가운데. 카메라의 깊이 기준점이다. */
@@ -276,13 +290,19 @@ export class World {
   beginDrag(): void {
     this.dragFrom = this.azimuthTo;
     this.dragOffset = 0;
+    this.dragPitch = 0;
   }
 
-  /** 한 번에 한 칸까지만 돈다. 손가락을 그대로 따라가지 않고 살짝 늦게 따라붙는다. */
-  dragBy(delta: number): void {
+  /**
+   * 가로(delta)는 시점을 돌린다 — 한 번에 한 칸까지만, 손가락을 살짝 늦게 따라붙는다.
+   * 세로(pitch)는 판을 기울여 본다. 끝으로 갈수록 고무줄처럼 뻑뻑해져 한계를 넘지 않는다.
+   */
+  dragBy(delta: number, pitch = 0): void {
     if (this.dragFrom === null) return;
     const quarter = Math.PI / 2;
     this.dragOffset = Math.max(-quarter, Math.min(quarter, delta));
+    const limit = pitch >= 0 ? PITCH_UP : PITCH_DOWN;
+    this.dragPitch = limit * Math.tanh(pitch / limit);
   }
 
   /** 손을 떼면 넘어갔는지 판정해서 붙인다. 결과적으로 몇 칸 돌았는지 돌려준다. */
@@ -294,6 +314,8 @@ export class World {
     // 속도는 그대로 둔다. 손을 떼는 순간 카메라가 멈췄다 다시 출발하면 뚝 끊겨 보인다.
     this.dragFrom = null;
     this.dragOffset = 0;
+    // 기울기는 스프링이 정면으로 되돌린다
+    this.dragPitch = 0;
     if (turns !== 0) this.view = turnView(this.view, turns as -1 | 1);
     return turns;
   }
@@ -308,6 +330,7 @@ export class World {
     // 손가락을 따라갈 때도, 손을 떼고 붙을 때도 같은 스프링 하나가 민다.
     // 그래서 놓는 순간에 속도가 끊기지 않는다.
     const want = this.dragFrom !== null ? this.dragFrom + this.dragOffset : this.azimuthTo;
+    const wantPitch = this.dragFrom !== null ? this.dragPitch : 0;
     // 프레임이 밀려도 같은 속도로 돌도록 잘게 쪼개서 적분한다. 안 그러면 끊긴 것처럼 보인다.
     let left = Math.min(dt, 0.2);
     while (left > 0) {
@@ -315,6 +338,9 @@ export class World {
       this.azimuthVel +=
         ((want - this.azimuth) * TURN_PULL * TURN_PULL - this.azimuthVel * 2 * TURN_PULL) * step;
       this.azimuth += this.azimuthVel * step;
+      this.pitchVel +=
+        ((wantPitch - this.pitch) * PITCH_PULL * PITCH_PULL - this.pitchVel * 2 * PITCH_PULL) * step;
+      this.pitch += this.pitchVel * step;
       left -= step;
     }
     this.follow(dt);
@@ -391,7 +417,7 @@ export class World {
     const phase = (((this.azimuth / quarter) % 1) + 1) % 1;
     // sin² 라서 들리기 시작할 때와 내려앉을 때 속도가 0 이다. 그래서 툭 튀지 않는다.
     const lift = Math.sin(Math.PI * phase) ** 2 * TURN_LIFT;
-    const tilt = TILT + lift;
+    const tilt = TILT + lift + this.pitch;
     const y = Math.sin(tilt) * DISTANCE;
     const h = Math.cos(tilt) * DISTANCE;
     const sin = Math.sin(this.azimuth);

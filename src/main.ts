@@ -194,6 +194,8 @@ document.addEventListener('keydown', (e) => {
  */
 const DRAG_START = 12;
 const RAD_PER_PX = Math.PI / 2 / 260;
+/** 세로로 끌 때 기울어지는 정도. 가로보다 조금 둔하게 — 보기만 하는 거니까. */
+const PITCH_PER_PX = 1 / 320;
 let touch: { id: number; x: number; y: number; dragging: boolean } | null = null;
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -205,12 +207,14 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (!touch || e.pointerId !== touch.id) return;
   const dx = e.clientX - touch.x;
+  const dy = e.clientY - touch.y;
   if (!touch.dragging) {
-    if (Math.abs(dx) < DRAG_START || world.busy || state.cleared) return;
+    if (Math.hypot(dx, dy) < DRAG_START || world.busy || state.cleared) return;
     touch.dragging = true;
     world.beginDrag();
   }
-  world.dragBy(-dx * RAD_PER_PX);
+  // 아래로 끌면 위에서 내려다본다
+  world.dragBy(-dx * RAD_PER_PX, dy * PITCH_PER_PX);
 });
 
 const release = (e: PointerEvent): void => {
