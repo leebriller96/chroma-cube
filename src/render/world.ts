@@ -24,7 +24,7 @@ import { FinishShader } from './print';
 import { Board } from './board';
 import { BADGE_LIFT, Bond } from './bond';
 import { Gust } from './gust';
-import { Cube } from './cube';
+import { CLIMB_MS, Cube, ROLL_MS } from './cube';
 import { easeInOutCubic } from './easing';
 
 /** 시점이 목표 각도로 빨려 들어가는 세기. 클수록 빠르다. */
@@ -181,8 +181,6 @@ export class World {
     for (let i = 0; i < state.pieces.length; i += 1) this.badges.push(new Vector3());
     for (const piece of state.pieces) {
       const cube = new Cube();
-      // 큐브는 평소에 문을 쳐다본다. 문지기 눈도 큐브를 보니 서로 눈이 마주친다.
-      cube.gazeAt(stage.tiles.find((t) => t.kind === 'goal')?.pos ?? null);
       cube.onImpact = () => this.onImpact?.();
       cube.onLand = () => this.onLand?.();
       cube.onSettled = () => this.onSettled?.();
@@ -262,7 +260,8 @@ export class World {
     for (const solid of layout(state.stage, state.view, state.flipped)) {
       if (solid.tile.kind === 'ghost') this.ghosts.add(solid.tile);
     }
-    this.board?.sync(state.view, open, this.ghosts, state.flipped);
+    const standing = state.pieces.filter((p) => !p.done).map((p) => ({ pos: p.pos, side: p.side }));
+    this.board?.sync(state.view, open, this.ghosts, state.flipped, standing);
     this.lead = state.pieces[state.active]?.done
       ? state.pieces.findIndex((p) => !p.done)
       : state.active;
@@ -284,6 +283,9 @@ export class World {
       if (!cube) continue;
       if (outcome.kind === 'move') {
         cube.roll(outcome.from, outcome.to, outcome.toward, forwardOf(this.view), outcome.painted, outcome.entered);
+        // 스위치 칸이면 굴러와 닿는 순간 버튼이 눌리며 물감이 튄다
+        const arrive = (outcome.from.y !== outcome.to.y ? CLIMB_MS : ROLL_MS) / 1000;
+        this.board?.splash(outcome.to, cube.side, outcome.painted !== null, arrive);
         // 떠난 자리가 뒤집히는 칸이면 큐브가 구르는 동안 등 뒤에서 넘어간다
         if (outcome.turned) {
           this.board?.turnOver(outcome.from);
@@ -358,7 +360,7 @@ export class World {
       this.intro = Math.min(1, this.intro + (dt * 1000) / this.revealMs);
       this.frame();
     }
-    for (const cube of this.cubes) cube.update(dt, this.azimuth);
+    for (const cube of this.cubes) cube.update(dt);
     if (this.bond) {
       const spots = this.cubes.map((c, i) =>
         c.gone ? null : c.badgeAt(this.badges[i] as Vector3, BADGE_LIFT),

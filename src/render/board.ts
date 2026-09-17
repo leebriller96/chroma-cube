@@ -11,20 +11,18 @@ import {
 } from 'three';
 import type { Stage } from '../core/stage';
 import { layout } from '../core/game';
-import { other, type Solid, type Tile, type Vec3, type ViewIndex } from '../core/types';
+import { eq, other, type Side, type Solid, type Tile, type Vec3, type ViewIndex } from '../core/types';
 import { DEEP, GOLD, PALETTE, STONE, UNPRINTED, type Ink } from './palette';
-import { slabTexture } from './textures';
+import { dripTexture, slabTexture } from './textures';
 import { clamp01, easeInOutCubic, easeOutCubic } from './easing';
 import { RING_R, RING_T, SLAB_H, SLAB_MID } from './metrics';
 import { Gate } from './gate';
+import { PaintButton, Splashes } from './switch';
 
 export { RING_R, RING_T };
 
 /** 발판 한 칸. 윗면이 y=0 이고 칸 높이를 거의 다 채운다. 옆면의 명암은 텍스처에 그려져 있다. */
 const SLAB = new BoxGeometry(0.96, SLAB_H, 0.96);
-/** 스위치 자국 */
-const BUTTON = new CircleGeometry(0.15, 24);
-const BUTTON_RING = new RingGeometry(0.19, 0.225, 24);
 /** 교대 칸 자국. 위아래로 갈라지는 두 삼각형이다. */
 const ARROW = new CircleGeometry(0.11, 3);
 /**
@@ -67,6 +65,8 @@ interface TileView {
   readonly facing: Object3D[];
   /** 문 칸이면 그 위에 선 문집 (교대 판이면 발판 밑에 하나 더) */
   readonly gates: Gate[];
+  /** 스위치 칸이면 그 위의 버튼 (교대 판이면 발판 밑에 하나 더) */
+  readonly buttons: PaintButton[];
   /** 뒤집히는 칸이면 몸통을 매단 축. 여기를 돌려서 발판을 넘긴다. */
   readonly flip: Group | null;
   readonly ghost: boolean;
@@ -86,6 +86,7 @@ const empty = (): Built => ({
   lit: [],
   facing: [],
   gates: [],
+  buttons: [],
   flip: null,
 });
 
@@ -97,6 +98,7 @@ export class Board {
 
   private ghosts: ReadonlySet<Tile> = new Set();
   private readonly views: TileView[] = [];
+  private readonly splashes = new Splashes();
   private readonly stage: Stage;
   private clock = 0;
   private aligned = true;
@@ -105,6 +107,7 @@ export class Board {
 
   constructor(stage: Stage) {
     this.stage = stage;
+    this.group.add(this.splashes.group);
     const sigils = stage.tiles.filter((t) => t.kind === 'sigil');
     for (const tile of stage.tiles) {
       const nth = tile.kind === 'sigil' ? sigils.indexOf(tile) : 0;
@@ -149,14 +152,34 @@ export class Board {
     return { ...empty(), skin: all, banded };
   }
 
+  /**
+   * 스위치 칸. 상아색 돌 옆면에 스위치 색 물감이 흘러내리고, 윗면 한가운데 버튼이 솟아 있다.
+   * 밟으면 버튼이 눌리며 물감이 튄다 (switch.ts).
+   */
+  private buildSwitch(tile: Tile, cell: Group): Built {
+    const paint = PALETTE[tile.color ?? 'blue'];
+    const banded = [0, 1, 2, 3].map(() => new MeshBasicMaterial({ map: dripTexture(STONE, paint) }));
+    const top = new MeshBasicMaterial({ color: STONE.light.clone() });
+    const bottom = new MeshBasicMaterial({ color: STONE.light.clone() });
+    const all = [banded[0]!, banded[1]!, top, bottom, banded[2]!, banded[3]!];
+    const slab = new Mesh(SLAB, all);
+    slab.position.y = SLAB_MID;
+    cell.add(slab);
+
+    const buttons = [new PaintButton(paint)];
+    if (this.stage.twoSided) buttons.push(new PaintButton(paint, true));
+    for (const b of buttons) cell.add(b.root);
+    return { ...empty(), skin: all, banded, buttons };
+  }
+
   private buildFloor(tile: Tile, cell: Group): Built {
+    if (tile.kind === 'switch') return this.buildSwitch(tile, cell);
     const ghost = tile.kind === 'ghost';
     const relay = tile.kind === 'relay';
-    const isSwitch = tile.kind === 'switch';
-    const ink: Ink = ghost ? UNPRINTED : relay || isSwitch ? STONE : PALETTE[tile.color ?? 'blue'];
+    const ink: Ink = ghost ? UNPRINTED : relay ? STONE : PALETTE[tile.color ?? 'blue'];
     // 뒤집힌 세계가 있는 판이면 발판 아랫절반을 반대색으로 칠한다.
     // 밑에 매달린 큐브가 걷는 길이 겉에서 그대로 보이도록.
-    const flip = this.stage.twoSided && !ghost && !relay && !isSwitch;
+    const flip = this.stage.twoSided && !ghost && !relay;
     const under = flip ? PALETTE[tile.color === 'red' ? 'blue' : 'red'] : undefined;
 
     const built = this.addSlab(cell, ink, under);
@@ -178,11 +201,6 @@ export class Board {
         flats.push({ mat, hue: hue.clone() });
       }
     };
-    if (isSwitch) {
-      const paint = PALETTE[tile.color ?? 'blue'];
-      stamp(BUTTON, paint.mid, SLAB_MID);
-      stamp(BUTTON_RING, paint.dark, SLAB_MID);
-    }
     if (relay) {
       // 위로 한 번, 아래로 한 번. 조종권이 발판 반대편으로 건너간다는 표시다.
       stamp(ARROW, DEEP, SLAB_MID + 0.19, Math.PI / 2);
@@ -280,11 +298,25 @@ export class Board {
     };
   }
 
-  /** 시점이 바뀌면 판을 다시 맞춘다. */
-  sync(view: ViewIndex, open: boolean, ghosts: ReadonlySet<Tile>, flipped: number): void {
+  /**
+   * 수를 두거나 시점이 바뀌면 판을 다시 맞춘다.
+   * standing 은 판에 남은 큐브들이 선 자리 — 스위치 버튼이 눌려 있을지를 여기서 정한다.
+   */
+  sync(
+    view: ViewIndex,
+    open: boolean,
+    ghosts: ReadonlySet<Tile>,
+    flipped: number,
+    standing: readonly { readonly pos: Vec3; readonly side: Side }[] = [],
+  ): void {
     if (open !== this.aligned) this.onGate?.(open);
     this.aligned = open;
     this.ghosts = ghosts;
+    for (const v of this.views) {
+      for (const b of v.buttons) {
+        b.hold(standing.some((s) => s.side === b.side && eq(s.pos, v.tile.pos)), this.clock);
+      }
+    }
     const live = new Map<Tile, Solid>();
     for (const solid of layout(this.stage, view, flipped)) live.set(solid.tile, solid);
 
@@ -336,6 +368,16 @@ export class Board {
     for (const gate of hit.gates) gate.rattle();
   }
 
+  /**
+   * 스위치 칸에 큐브가 굴러오고 있다. delay 초 뒤 닿는 순간 물감이 튄다.
+   * 실제로 물드는 걸음이면 크게, 이미 같은 색이면 작게.
+   */
+  splash(pos: Vec3, side: Side, painted: boolean, delay: number): void {
+    const hit = this.at(pos);
+    if (hit?.tile.kind !== 'switch') return;
+    this.splashes.burst(pos, PALETTE[hit.tile.color ?? 'blue'], side, painted, delay);
+  }
+
   /** 큐브가 모두 문에 들어갔다. 문이 닫히며 한바탕 기뻐한다. */
   celebrate(): void {
     for (const v of this.views) for (const gate of v.gates) gate.celebrate();
@@ -347,8 +389,10 @@ export class Board {
     // 문은 봉인이 켜진 뒤에 열려야 순서가 읽힌다. 그래서 조금 느리게 따라간다.
     this.swing += ((this.aligned ? 1 : 0) - this.swing) * (1 - Math.exp(-dt * 4.2));
     const open = easeInOutCubic(clamp01(this.swing));
+    this.splashes.update(dt);
 
     for (const v of this.views) {
+      for (const b of v.buttons) b.update(dt, this.clock);
       // 문과 고리는 늘 카메라를 마주 본다. 어느 쪽에서 봐도 같은 문으로 읽히도록.
       for (const node of v.facing) node.rotation.y = azimuth;
       for (const gate of v.gates) {

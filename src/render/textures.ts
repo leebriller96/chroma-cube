@@ -41,6 +41,78 @@ export function skyTexture(top: Color, low: Color): CanvasTexture {
   return tex;
 }
 
+const drips = new Map<string, CanvasTexture>();
+
+/**
+ * 스위치 칸 옆면. 상아색 돌 위쪽에 스위치 색 물감이 칠해져 있고, 아래로 뚝뚝 흘러내린다.
+ * "밟으면 이 색으로 물든다"를 글자 없이 모양으로 말한다.
+ */
+export function dripTexture(stone: Ink, paint: Ink): CanvasTexture {
+  const key = css(stone.mid) + '~' + css(paint.mid);
+  const cached = drips.get(key);
+  if (cached) return cached;
+
+  const w = 64;
+  const h = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d');
+  if (g) {
+    const band = (from: number, to: number, color: string): void => {
+      g.fillStyle = color;
+      g.fillRect(0, Math.round(from * h), w, Math.round((to - from) * h));
+    };
+    band(0, 0.13, css(stone.light));
+    band(0.13, 0.86, css(stone.mid));
+    band(0.86, 1, css(stone.dark));
+
+    // 윗단을 덮은 물감과, 거기서 흘러내린 자국. 굵기와 길이를 조금씩 달리해 손으로 부은 것처럼.
+    const flows: readonly (readonly [x: number, half: number, length: number])[] = [
+      [0.12, 0.085, 0.47],
+      [0.35, 0.055, 0.3],
+      [0.58, 0.1, 0.64],
+      [0.84, 0.065, 0.39],
+    ];
+    g.fillStyle = css(paint.mid);
+    g.fillRect(0, 0, w, Math.round(h * 0.19));
+    for (const [cx, half, length] of flows) {
+      const x = cx * w;
+      const r = half * w;
+      const bottom = length * h;
+      g.beginPath();
+      g.moveTo(x - r, 0);
+      g.lineTo(x - r, bottom - r);
+      g.arc(x, bottom - r, r, Math.PI, 0, true);
+      g.lineTo(x + r, 0);
+      g.closePath();
+      g.fill();
+    }
+    // 물감의 윤기. 윗단 한 줄과 흘러내린 자국마다 가는 빛줄기.
+    g.fillStyle = css(paint.light);
+    g.fillRect(0, 0, w, Math.round(h * 0.045));
+    for (const [cx, half, length] of flows) {
+      const r = half * w;
+      g.fillRect(cx * w - r * 0.55, h * 0.06, Math.max(1.5, r * 0.32), length * h - r * 1.9 - h * 0.06);
+    }
+    // 물감 윗단 아래 그늘 한 줄
+    g.fillStyle = css(paint.dark, 0.45);
+    g.fillRect(0, Math.round(h * 0.19), w, 2);
+
+    g.fillStyle = 'rgba(28,20,52,0.24)';
+    g.fillRect(0, 0, 1, h);
+    g.fillRect(w - 1, 0, 1, h);
+  }
+
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearFilter;
+  tex.generateMipmaps = false;
+  drips.set(key, tex);
+  return tex;
+}
+
 const slabs = new Map<string, CanvasTexture>();
 
 /**

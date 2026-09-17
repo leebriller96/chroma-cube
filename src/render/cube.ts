@@ -1,13 +1,10 @@
 import {
   BackSide,
-  CircleGeometry,
   Color,
-  DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   Quaternion,
-  RingGeometry,
   Shape,
   ShapeGeometry,
   ShaderMaterial,
@@ -65,7 +62,6 @@ type Anim =
       readonly ms: number;
       readonly intoGoal: boolean;
       readonly away: Vec3;
-      readonly toward: Vec3;
       t: number;
     }
   | { readonly kind: 'refuse'; readonly toward: Vec3; readonly axis: Vector3; t: number; dinged: boolean }
@@ -157,59 +153,12 @@ const FACES: readonly (readonly [Vec3, number, number])[] = [
   [{ x: 0, y: -HALF - 0.003, z: 0 }, 0, Math.PI / 2],
 ];
 
-/*
- * 얼굴. 몸통과 따로 떠 있어서 굴러도 늘 카메라를 똑바로 본다.
- */
-const EYE_GAP = 0.15;
-const EYE_Y = 0.07;
-const EYE_WHITE = new CircleGeometry(0.088, 24);
-const EYE_RIM = new RingGeometry(0.088, 0.106, 24);
-const PUPIL = new CircleGeometry(0.047, 18);
-const GLINT = new CircleGeometry(0.017, 10);
-/** 웃는 눈 ^ — 문에 들어갈 때 */
-const HAPPY = new RingGeometry(0.058, 0.084, 18, 1, 0, Math.PI);
-const CHEEK = new CircleGeometry(0.052, 18);
-const SMILE = new RingGeometry(0.042, 0.066, 16, 1, Math.PI * 1.08, Math.PI * 0.84);
-const GASP = new RingGeometry(0.026, 0.048, 16);
-/** 식은땀 한 방울. 둥근 몸에 뾰족한 끝. */
-const SWEAT = (() => {
-  const s = new Shape();
-  s.moveTo(0, 0.07);
-  s.quadraticCurveTo(0.045, 0.01, 0.04, -0.02);
-  s.absarc(0, -0.02, 0.04, 0, Math.PI, true);
-  s.quadraticCurveTo(-0.045, 0.01, 0, 0.07);
-  return new ShapeGeometry(s, 8);
-})();
-
-const WHITE = new Color(0xfffaf2);
-const BLUSH = new Color(0xff8d7a);
-const DROP = new Color(0xbfe4ff);
-
-const flat = (color: Color, opacity = 1): MeshBasicMaterial =>
-  new MeshBasicMaterial({ color: color.clone(), transparent: true, opacity, side: DoubleSide, fog: false });
-
 export class Cube {
-  /** 판에 넣는 뿌리. 몸통과 얼굴을 함께 담는다. */
   readonly root = new Group();
-  /** 구르고 튕기는 몸 */
-  private readonly body = new Group();
   private readonly mesh: Mesh;
   private readonly skin: ShaderMaterial;
   private readonly panels: ShaderMaterial;
   private readonly hull: MeshBasicMaterial;
-
-  private readonly face = new Group();
-  private readonly faceMats: { readonly mat: MeshBasicMaterial; readonly alpha: number }[] = [];
-  private readonly lids: Group[] = [];
-  private readonly pupils: Group[] = [];
-  private readonly happy: Mesh[] = [];
-  private readonly smileMat = flat(DEEP);
-  private readonly smile = new Mesh(SMILE, this.smileMat);
-  private readonly gaspMat = flat(DEEP);
-  private readonly gasp = new Mesh(GASP, this.gaspMat);
-  private readonly sweatMat = flat(DROP, 0);
-  private readonly sweat = new Mesh(SWEAT, this.sweatMat);
-  private readonly here = new Vector3();
 
   private readonly spin = new Quaternion();
   private cell: Vec3 = { x: 0, y: 0, z: 0 };
@@ -228,17 +177,6 @@ export class Cube {
   /** 발판 위면 +1 · 0, 밑에 매달리면 -1 · 발판 두께만큼 아래 */
   private up = 1;
   private base = 0;
-
-  /** 평소에 눈이 향하는 곳. 판의 문이다. */
-  private gaze: Vec3 | null = null;
-  private opened = 1;
-  private clock = Math.random() * 10;
-  private blinkAt = 1.5 + Math.random() * 3;
-  private blinkT = 1;
-  private lookX = 0;
-  private lookY = 0;
-  /** 구르거나 튕기는 중인 정도(0~1). 그동안 얼굴이 앞으로 나와 튀어나온 모서리에 안 먹힌다. */
-  private float = 0;
 
   /** 벽에 닿는 순간 */
   onImpact: (() => void) | null = null;
@@ -265,63 +203,17 @@ export class Cube {
     hull.scale.setScalar(1.075);
     this.mesh.add(hull);
 
-    this.body.add(this.mesh);
-    this.root.add(this.body, this.face);
-    this.buildFace();
-  }
-
-  private buildFace(): void {
-    const add = (mesh: Mesh, mat: MeshBasicMaterial, alpha = 1): Mesh => {
-      this.faceMats.push({ mat, alpha });
-      return mesh;
-    };
-    for (const side of [-1, 1]) {
-      const lid = new Group();
-      lid.position.set(side * EYE_GAP, EYE_Y, 0);
-      const whiteMat = flat(WHITE);
-      lid.add(add(new Mesh(EYE_WHITE, whiteMat), whiteMat));
-      const rimMat = flat(DEEP);
-      const rim = add(new Mesh(EYE_RIM, rimMat), rimMat);
-      rim.position.z = 0.001;
-      lid.add(rim);
-      const pupil = new Group();
-      pupil.position.z = 0.002;
-      const pupilMat = flat(DEEP);
-      pupil.add(add(new Mesh(PUPIL, pupilMat), pupilMat));
-      const glintMat = flat(WHITE);
-      const glint = add(new Mesh(GLINT, glintMat), glintMat);
-      glint.position.set(0.018, 0.02, 0.001);
-      pupil.add(glint);
-      lid.add(pupil);
-      this.face.add(lid);
-      this.lids.push(lid);
-      this.pupils.push(pupil);
-
-      const happyMat = flat(DEEP);
-      const happy = add(new Mesh(HAPPY, happyMat), happyMat);
-      happy.position.set(side * EYE_GAP, EYE_Y - 0.02, 0.003);
-      happy.visible = false;
-      this.face.add(happy);
-      this.happy.push(happy);
-
-      const cheekMat = flat(BLUSH, 0.42);
-      const cheek = add(new Mesh(CHEEK, cheekMat), cheekMat, 0.42);
-      cheek.position.set(side * 0.25, -0.08, -0.001);
-      this.face.add(cheek);
-    }
-    add(this.smile, this.smileMat);
-    this.smile.position.set(0, -0.08, 0.002);
-    this.face.add(this.smile);
-    add(this.gasp, this.gaspMat);
-    this.gasp.position.set(0, -0.12, 0.002);
-    this.gasp.visible = false;
-    this.face.add(this.gasp);
-    this.face.add(this.sweat);
+    this.root.add(this.mesh);
   }
 
   /** 지금 서 있는 칸 */
   get position(): Vec3 {
     return this.cell;
+  }
+
+  /** 발판 위에 서 있는지, 밑에 매달려 있는지 */
+  get side(): Side {
+    return this.up === 1 ? 'top' : 'under';
   }
 
   /** 문에 들어가 판에서 빠졌는지 */
@@ -331,18 +223,13 @@ export class Cube {
 
   /** 고리 반쪽이 뜨는 자리. 머리 위, 밑에 매달린 큐브면 발밑이다. */
   badgeAt(out: Vector3, lift: number): Vector3 {
-    const at = this.body.position;
+    const at = this.root.position;
     return out.set(at.x, at.y + this.up * lift, at.z);
   }
 
-  /** 교대 판에서 지금 조종 중인지. 아닌 큐브는 색을 빼고 졸린 눈을 한다. */
+  /** 교대 판에서 지금 조종 중인지. 아닌 큐브는 색을 빼서 둔다. */
   setActive(on: boolean): void {
     this.dim = !on;
-  }
-
-  /** 평소에 눈으로 좇을 곳. 판의 문을 준다 — 문지기 눈과 서로 쳐다보게. */
-  gazeAt(target: Vec3 | null): void {
-    this.gaze = target;
   }
 
   /** 발판의 어느 면에 붙는지. place() 전에 정한다. */
@@ -360,7 +247,6 @@ export class Cube {
     this.anim = null;
     this.sunk = true;
     this.mesh.visible = false;
-    this.face.visible = false;
   }
 
   place(cell: Vec3, color: ColorId): void {
@@ -375,7 +261,6 @@ export class Cube {
     this.mesh.scale.setScalar(1);
     this.fade(1);
     this.mesh.visible = true;
-    this.face.visible = true;
     this.rest();
   }
 
@@ -427,7 +312,6 @@ export class Cube {
       ms: climbing ? CLIMB_MS : ROLL_MS,
       intoGoal,
       away: forward,
-      toward,
       t: 0,
     };
     if (painted) {
@@ -441,20 +325,19 @@ export class Cube {
     this.anim = { kind: 'refuse', toward, axis: axisFor(toward, this.up), t: 0, dinged: false };
   }
 
-  update(dt: number, azimuth = 0): void {
+  update(dt: number): void {
     const anim = this.anim;
-    this.clock += dt;
 
     if (anim?.kind === 'roll') {
       anim.t = clamp01(anim.t + (dt * 1000) / anim.ms);
       const e = smoothstep(anim.t);
       const at = anim.arm.clone().applyAxisAngle(anim.axis, anim.angle * e).add(anim.pivot);
-      this.body.position.set(
+      this.root.position.set(
         at.x + anim.slide.x * e,
         at.y + anim.slide.y * e,
         at.z + anim.slide.z * e,
       );
-      this.body.quaternion.setFromAxisAngle(anim.axis, anim.angle * e);
+      this.root.quaternion.setFromAxisAngle(anim.axis, anim.angle * e);
       this.mesh.position.set(0, 0, 0);
       this.mesh.quaternion.copy(this.spin);
       if (anim.t >= 1) {
@@ -476,12 +359,12 @@ export class Cube {
         anim.dinged = true;
         this.onImpact?.();
       }
-      this.body.position.set(
+      this.root.position.set(
         this.cell.x + anim.toward.x * HALF,
         this.cell.y + this.base,
         this.cell.z + anim.toward.z * HALF,
       );
-      this.body.quaternion.setFromAxisAngle(anim.axis, refuseAngle(anim.t));
+      this.root.quaternion.setFromAxisAngle(anim.axis, refuseAngle(anim.t));
       this.mesh.position.set(-anim.toward.x * HALF, this.up * HALF, -anim.toward.z * HALF);
       this.mesh.quaternion.copy(this.spin);
       if (anim.t >= 1) {
@@ -501,7 +384,6 @@ export class Cube {
         this.anim = null;
         this.sunk = true;
         this.mesh.visible = false;
-        this.face.visible = false;
         this.onSettled?.();
       }
     } else {
@@ -522,97 +404,12 @@ export class Cube {
     if (this.blend < 1) {
       this.blend = clamp01(this.blend + (dt * 1000) / PAINT_MS);
     }
-
-    this.updateFace(dt, azimuth);
-  }
-
-  /**
-   * 표정.
-   * 평소엔 문을 쳐다보며 가끔 깜빡이고, 구를 땐 질끈 감고, 부딪히면 찡그리며 "o" 입에 식은땀,
-   * 색이 바뀌면 눈이 동그래지고, 문에 들어갈 땐 웃는 눈. 조종 중이 아닌 몸은 졸린 눈이다.
-   */
-  private updateFace(dt: number, azimuth: number): void {
-    if (!this.mesh.visible) return;
-    const anim = this.anim;
-    const sin = Math.sin(azimuth);
-    const cos = Math.cos(azimuth);
-
-    // 가만히 있을 땐 앞면에 붙인다. 구르거나 시점이 돌아 모서리가 카메라 쪽으로 튀어나오면
-    // 그만큼 앞으로 띄운다 — 얼굴이 제 몸 모서리에 먹히지 않게.
-    const moving = anim?.kind === 'roll' || anim?.kind === 'refuse';
-    this.float += ((moving ? 1 : 0) - this.float) * (1 - Math.exp(-dt * 20));
-    const turning = Math.abs(Math.sin(2 * azimuth));
-    const out = HALF + 0.02 + Math.max(this.float * 0.19, turning * 0.2);
-    this.mesh.getWorldPosition(this.here);
-    this.face.position.set(this.here.x + sin * out, this.here.y, this.here.z + cos * out);
-    this.face.rotation.set(0, azimuth, 0);
-    const s = this.mesh.scale;
-    this.face.scale.set(s.x, s.y * this.up, 1);
-
-    const refusing = anim?.kind === 'refuse' && anim.t > PUSH * 0.6 && anim.t < 0.8;
-    const rolling = anim?.kind === 'roll';
-    const sinking = anim?.kind === 'sink';
-    const painting = this.blend < 1;
-
-    // 눈 뜬 정도
-    let want = 1;
-    if (this.dim) want = 0.14;
-    if (painting) want = 1.3;
-    if (rolling) want = 0.32;
-    if (refusing) want = 0.12;
-    this.opened += (want - this.opened) * (1 - Math.exp(-dt * (want > this.opened ? 18 : 22)));
-    if (this.clock > this.blinkAt) {
-      this.blinkT = 0;
-      this.blinkAt = this.clock + 2 + Math.random() * 3.5;
-    }
-    this.blinkT = Math.min(1, this.blinkT + dt / 0.16);
-    const blink = 1 - Math.sin(Math.PI * this.blinkT) * 0.9;
-    for (const lid of this.lids) {
-      lid.visible = !sinking;
-      lid.scale.set(1, Math.max(0.08, this.opened * blink), 1);
-    }
-    for (const h of this.happy) h.visible = sinking;
-
-    // 시선. 구를 땐 가는 쪽, 평소엔 문 쪽.
-    let tx = 0;
-    let ty = 0;
-    if (anim?.kind === 'roll' || anim?.kind === 'refuse') {
-      tx = Math.sign(anim.toward.x * cos - anim.toward.z * sin) * 0.028;
-    } else if (this.gaze) {
-      const dx = this.gaze.x - this.here.x;
-      const dz = this.gaze.z - this.here.z;
-      const across = dx * cos - dz * sin;
-      const upward = (this.gaze.y + 0.6 - this.here.y) * this.up;
-      const len = Math.hypot(across, upward) + 1.2;
-      tx = (across / len) * 0.03;
-      ty = (upward / len) * 0.025;
-    }
-    const k = 1 - Math.exp(-dt * 12);
-    this.lookX += (tx - this.lookX) * k;
-    this.lookY += (ty - this.lookY) * k;
-    for (const p of this.pupils) p.position.set(this.lookX, this.lookY, 0.002);
-
-    // 입
-    this.smile.visible = !refusing;
-    this.gasp.visible = refusing;
-    this.smile.scale.setScalar(sinking ? 1.35 : 1);
-
-    // 식은땀은 부딪힌 반대쪽 이마에서 흘러내린다
-    if (anim?.kind === 'refuse' && anim.t > PUSH) {
-      const p = (anim.t - PUSH) / (1 - PUSH);
-      const away = -Math.sign(anim.toward.x * cos - anim.toward.z * sin) || 1;
-      this.sweat.position.set(away * 0.3, 0.2 - p * 0.16, 0.004);
-      this.sweatMat.opacity = Math.sin(Math.PI * Math.min(1, p * 1.3)) * this.skin.uniforms['uOpacity']!.value;
-    } else {
-      this.sweatMat.opacity = 0;
-    }
   }
 
   private fade(a: number): void {
     this.skin.uniforms['uOpacity']!.value = a;
     this.panels.uniforms['uOpacity']!.value = a;
     this.hull.opacity = a;
-    for (const { mat, alpha } of this.faceMats) mat.opacity = alpha * a;
   }
 
   /** 몸통 · 판 · 외곽선을 지금 색으로 다시 칠한다. */
@@ -642,8 +439,8 @@ export class Cube {
 
   /** 아무 애니메이션도 없을 때의 기본 자세 */
   private rest(): void {
-    this.body.position.set(this.cell.x, this.cell.y + this.base + this.up * HALF, this.cell.z);
-    this.body.quaternion.identity();
+    this.root.position.set(this.cell.x, this.cell.y + this.base + this.up * HALF, this.cell.z);
+    this.root.quaternion.identity();
     this.mesh.position.set(0, 0, 0);
     this.mesh.quaternion.copy(this.spin);
   }
