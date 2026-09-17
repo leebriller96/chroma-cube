@@ -89,6 +89,8 @@ export class World {
   private bond: Bond | null = null;
   /** 지금 두 몸이 포개져 있는지. 고리가 이어졌는지와 같은 말이다. */
   private joined = true;
+  /** 이번 판을 깬 것을 문에게 이미 알렸는지 */
+  private celebrated = false;
   private view: ViewIndex = 0;
   private azimuth = 0;
   private azimuthTo = 0;
@@ -162,6 +164,7 @@ export class World {
     this.stageRoot.clear();
     this.board = new Board(stage);
     this.stageRoot.add(this.board.group);
+    this.celebrated = false;
 
     for (const cube of this.cubes) this.scene.remove(cube.root);
     this.cubes.length = 0;
@@ -246,6 +249,11 @@ export class World {
   /** 판이 바뀔 때마다(수를 두거나 시점을 돌릴 때마다) 부른다. */
   sync(state: GameState): void {
     this.view = state.view;
+    // 다 들어갔으면 문에게 알린다. 문이 닫히며 기뻐한다.
+    if (state.cleared && !this.celebrated) {
+      this.celebrated = true;
+      this.board?.celebrate();
+    }
     this.joined = merged(state);
     const open = unsealed(state.stage, state.view) && this.joined;
     this.ghosts.clear();
@@ -355,7 +363,7 @@ export class World {
       );
       this.bond.update(dt, this.azimuth, spots, this.joined);
     }
-    this.board?.update(dt, this.azimuth);
+    this.board?.update(dt, this.azimuth, this.cubes.length > 0 ? this.focusPoint() : null);
     this.backdrop.update(dt, this.azimuth, this.target);
     // 바람은 물러나는 동안만 분다. 다 물러나면 잦아든다.
     this.gust.update(dt, this.azimuth, this.target, this.intro < 1);

@@ -8,8 +8,6 @@ import {
   MeshBasicMaterial,
   Object3D,
   RingGeometry,
-  Shape,
-  ShapeGeometry,
 } from 'three';
 import type { Stage } from '../core/stage';
 import { layout } from '../core/game';
@@ -17,7 +15,10 @@ import { other, type Solid, type Tile, type Vec3, type ViewIndex } from '../core
 import { DEEP, GOLD, PALETTE, STONE, UNPRINTED, type Ink } from './palette';
 import { slabTexture } from './textures';
 import { clamp01, easeInOutCubic, easeOutCubic } from './easing';
-import { SLAB_H, SLAB_MID } from './metrics';
+import { RING_R, RING_T, SLAB_H, SLAB_MID } from './metrics';
+import { Gate } from './gate';
+
+export { RING_R, RING_T };
 
 /** 발판 한 칸. 윗면이 y=0 이고 칸 높이를 거의 다 채운다. 옆면의 명암은 텍스처에 그려져 있다. */
 const SLAB = new BoxGeometry(0.96, SLAB_H, 0.96);
@@ -38,19 +39,6 @@ const TURN_ARC_LEN = 2.15;
 const TURN_ARC = new RingGeometry(TURN_R - 0.028, TURN_R + 0.028, 24, 1, TURN_ARC_FROM, TURN_ARC_LEN);
 const TURN_HEAD = new CircleGeometry(0.068, 3);
 
-/** 문 안쪽 구멍의 반너비와 높이 */
-const GATE_W = 0.46;
-const GATE_H = 1.12;
-/**
- * 고리. 이 게임에서 '문이 열린다'를 뜻하는 단 하나의 기호다.
- * 흩어진 조각으로도, 두 몸이 반씩 나눠 이고 다니는 반쪽으로도, 문에 걸린 봉인으로도 나온다.
- * 그래서 어디서 보든 크기가 같아야 한다.
- */
-export const RING_R = 0.3;
-export const RING_T = 0.075;
-/** 문짝이 안쪽으로 젖혀지는 각도. 90°를 넘겨야 활짝 열린 것으로 읽힌다. */
-const SWING = 1.66;
-
 /** 몸통 네 옆면의 [x, z, y축 회전] */
 const SIDES: readonly (readonly [number, number, number])[] = [
   [0, 0.482, 0],
@@ -58,37 +46,6 @@ const SIDES: readonly (readonly [number, number, number])[] = [
   [0.482, 0, Math.PI / 2],
   [-0.482, 0, -Math.PI / 2],
 ];
-
-/** 아래가 평평하고 위가 둥근 문 모양 */
-function archShape(w: number, h: number): Shape {
-  const s = new Shape();
-  s.moveTo(-w, 0);
-  s.lineTo(-w, h - w);
-  s.absarc(0, h - w, w, Math.PI, 0, true);
-  s.lineTo(w, 0);
-  s.closePath();
-  return s;
-}
-
-/**
- * 문짝 한 짝. 경첩이 원점이고 몸은 +x 로 뻗는다.
- * 오른쪽 짝은 이걸 x 로 뒤집어 쓴다 — 그래서 봉인 고리도 저절로 반씩 나뉜다.
- */
-function leafShape(w: number, h: number): Shape {
-  const s = new Shape();
-  s.moveTo(0, 0);
-  s.lineTo(0, h - w);
-  s.absarc(w, h - w, w, Math.PI, Math.PI / 2, true);
-  s.lineTo(w, 0);
-  s.closePath();
-  return s;
-}
-
-const GATE_VOID = new ShapeGeometry(archShape(GATE_W, GATE_H));
-const GATE_FRAME = new ShapeGeometry(archShape(GATE_W + 0.12, GATE_H + 0.16));
-const GATE_LEAF = new ShapeGeometry(leafShape(GATE_W - 0.012, GATE_H - 0.012));
-/** 문짝에 반씩 새겨진 봉인. 닫혀 있을 때만 온전한 고리로 보인다. */
-const SEAL_HALF = new RingGeometry(RING_R - RING_T, RING_R, 40, 1, Math.PI / 2, Math.PI);
 
 /** 잠금 상태에 따라 색이 갈리는 부분 */
 interface Lit {
@@ -108,8 +65,8 @@ interface TileView {
   readonly lit: Lit[];
   /** 카메라를 늘 마주 봐야 하는 것들 */
   readonly facing: Object3D[];
-  /** 문짝. 열릴 때 경첩을 축으로 젖혀진다. */
-  readonly leaves: { readonly hinge: Group; readonly dir: number }[];
+  /** 문 칸이면 그 위에 선 문집 (교대 판이면 발판 밑에 하나 더) */
+  readonly gates: Gate[];
   /** 뒤집히는 칸이면 몸통을 매단 축. 여기를 돌려서 발판을 넘긴다. */
   readonly flip: Group | null;
   readonly ghost: boolean;
@@ -128,7 +85,7 @@ const empty = (): Built => ({
   flats: [],
   lit: [],
   facing: [],
-  leaves: [],
+  gates: [],
   flip: null,
 });
 
@@ -288,62 +245,18 @@ export class Board {
   }
 
   /**
-   * 문. 발판 위에 아치가 서고, 그 안에 문짝 두 짝이 닫혀 있다.
-   * 닫힌 문짝에는 봉인 고리가 반씩 새겨져 있어, 조건이 맞으면 고리가 금빛으로 켜지고
-   * 문짝이 안쪽으로 젖혀지며 열린다 — 왜 못 들어갔는지, 언제 들어갈 수 있는지가 모양으로 보인다.
+   * 문. 발판 위에 문집이 선다 (모양과 표정은 gate.ts).
+   * 봉인이 풀리면 문짝이 안쪽으로 젖혀지며 열린다 — 왜 못 들어갔는지, 언제 들어갈 수 있는지가 모양으로 보인다.
    * 밑에 매달린 큐브가 있는 판이면 발판 아래에도 거꾸로 하나 더 세운다.
    */
   private buildGoal(tile: Tile, cell: Group): Built {
     const ink = PALETTE[tile.color ?? 'blue'];
     const under = this.stage.twoSided ? PALETTE[tile.color === 'red' ? 'blue' : 'red'] : undefined;
     const built = this.addSlab(cell, ink, under);
-    const lit: Lit[] = [];
-    const facing: Object3D[] = [];
-    const leaves: { hinge: Group; dir: number }[] = [];
-
-    const gate = (flip: boolean): void => {
-      const arch = new Group();
-      arch.position.y = flip ? -SLAB_H : 0;
-      arch.scale.y = flip ? -1 : 1;
-      const face = flip ? (under ?? ink) : ink;
-
-      const frame = new Mesh(GATE_FRAME, new MeshBasicMaterial({ color: GOLD.mid.clone(), side: DoubleSide }));
-      frame.position.z = -0.37;
-      arch.add(frame);
-
-      const hole = new Mesh(GATE_VOID, new MeshBasicMaterial({ color: DEEP.clone(), side: DoubleSide, fog: false }));
-      hole.position.z = -0.36;
-      arch.add(hole);
-
-      for (const dir of [-1, 1]) {
-        const hinge = new Group();
-        hinge.position.set(dir * (GATE_W - 0.012), 0, -0.35);
-        const leaf = new Mesh(GATE_LEAF, new MeshBasicMaterial({ color: face.mid.clone(), side: DoubleSide }));
-        // 왼쪽 짝은 경첩에서 오른쪽으로, 오른쪽 짝은 왼쪽으로 뻗어 가운데서 만난다
-        leaf.scale.x = -dir;
-        hinge.add(leaf);
-
-        // 봉인은 문짝 한가운데 모서리에 반쪽씩 걸린다. 닫혀야 온전한 고리가 된다.
-        const sealMat = new MeshBasicMaterial({ color: STONE.mid.clone(), side: DoubleSide });
-        const seal = new Mesh(SEAL_HALF, sealMat);
-        seal.position.set(GATE_W - 0.012, GATE_H * 0.42, 0.004);
-        leaf.add(seal);
-        lit.push({ mat: sealMat, on: GOLD.light.clone(), off: STONE.mid.clone() });
-
-        arch.add(hinge);
-        leaves.push({ hinge, dir });
-      }
-
-      const spin = new Group();
-      spin.add(arch);
-      cell.add(spin);
-      facing.push(spin);
-    };
-
-    gate(false);
-    if (this.stage.twoSided) gate(true);
-
-    return { ...built, lit, facing, leaves };
+    const gates = [new Gate(ink)];
+    if (under) gates.push(new Gate(under, true));
+    for (const gate of gates) cell.add(gate.root);
+    return { ...built, gates };
   }
 
   /**
@@ -417,10 +330,18 @@ export class Board {
   /** 색이 달라 못 밟은 칸을 한 번 밝힌다 */
   flash(pos: Vec3): void {
     const hit = this.at(pos);
-    if (hit) hit.flash = 1;
+    if (!hit) return;
+    hit.flash = 1;
+    // 문을 들이받았으면 문이 덜컹거린다
+    for (const gate of hit.gates) gate.rattle();
   }
 
-  update(dt: number, azimuth: number): void {
+  /** 큐브가 모두 문에 들어갔다. 문이 닫히며 한바탕 기뻐한다. */
+  celebrate(): void {
+    for (const v of this.views) for (const gate of v.gates) gate.celebrate();
+  }
+
+  update(dt: number, azimuth: number, focus: Vec3 | null = null): void {
     this.clock += dt;
     const beat = 0.5 + 0.5 * Math.sin(this.clock * 2.2);
     // 문은 봉인이 켜진 뒤에 열려야 순서가 읽힌다. 그래서 조금 느리게 따라간다.
@@ -430,8 +351,9 @@ export class Board {
     for (const v of this.views) {
       // 문과 고리는 늘 카메라를 마주 본다. 어느 쪽에서 봐도 같은 문으로 읽히도록.
       for (const node of v.facing) node.rotation.y = azimuth;
-      // 두 짝 다 안쪽(카메라 반대쪽)으로 젖혀진다
-      for (const leaf of v.leaves) leaf.hinge.rotation.y = -leaf.dir * SWING * open;
+      for (const gate of v.gates) {
+        gate.update(dt, { clock: this.clock, open, aligned: this.aligned, azimuth, focus });
+      }
 
       if (v.flash > 0) v.flash = clamp01(v.flash - dt * 2.2);
       const bump = easeOutCubic(v.flash);

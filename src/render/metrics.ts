@@ -9,3 +9,10 @@ export const SLAB_H = 0.88;
 /** 발판 윗면이 칸의 y 다. 몸통은 그 아래로 SLAB_H 만큼 내려간다. */
 export const SLAB_MID = -SLAB_H / 2;
 export const CUBE_SIZE = 0.9;
+/**
+ * 고리. 이 게임에서 '문이 열린다'를 뜻하는 단 하나의 기호다.
+ * 흩어진 조각으로도, 두 몸이 반씩 나눠 이고 다니는 반쪽으로도, 문에 걸린 봉인으로도 나온다.
+ * 그래서 어디서 보든 크기가 같아야 한다.
+ */
+export const RING_R = 0.3;
+export const RING_T = 0.075;
